@@ -1,0 +1,30 @@
+{
+  "architecture": "SRVGGNetCompact",
+  "variant": "realesr-general-x4v3",
+  "num_in_ch": 3,
+  "num_out_ch": 3,
+  "num_feat": 64,
+  "num_conv": 32,
+  "upscale": 4,
+  "activation": "prelu rewritten as relu/sub/mul/add (same math, WebGPU-safe ops)",
+  "source_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+  "source_sha256": "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292",
+  "onnx_file": "realesr-general-x4v3.onnx",
+  "onnx_sha256": "623e9b84e38d32ff72419f97d1c5e54a1b308a8d3b4355d363ecdf1b10c2f2f2",
+  "opset": 17,
+  "ops": [
+    "Add",
+    "Constant",
+    "Conv",
+    "DepthToSpace",
+    "Mul",
+    "Relu",
+    "Resize",
+    "Sub"
+  ],
+  "input": "input float32 NCHW RGB in [0, 1], dynamic H and W",
+  "output": "output float32 NCHW RGB, about [0, 1], H*4 and W*4",
+  "golden_mean_abs_diff_vs_bicubic": 8.608236,
+  "license": "BSD-3-Clause. Weights and architecture by Xintao Wang / Real-ESRGAN.",
+  "not_a_bicubic_stub": true
+}
