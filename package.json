@@ -1,0 +1,14 @@
+{
+  "name": "terrance-video-remaster",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Phone cinematic studio with a private vault lock. ONNX Runtime Web is bundled for on-device enhance. No CDN and no telemetry.",
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "mp4-muxer": "5.2.2",
+    "onnxruntime-web": "1.31.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
