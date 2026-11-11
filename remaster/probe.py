@@ -59,7 +59,7 @@ def parse_rate(text: str | None) -> tuple[int, int] | None:
     return num, den
 
 
-def frame_durations(ffprobe: str, path: Path) -> list[int]:
+def _read_frame_durations(ffprobe: str, path: Path, field: str) -> tuple[int, list[int]]:
     command = [
         ffprobe,
         "-v",
@@ -67,7 +67,7 @@ def frame_durations(ffprobe: str, path: Path) -> list[int]:
         "-select_streams",
         "v:0",
         "-show_entries",
-        "frame=pkt_duration",
+        f"frame={field}",
         "-of",
         "csv=p=0",
         str(path),
@@ -89,6 +89,14 @@ def frame_durations(ffprobe: str, path: Path) -> list[int]:
             durations.append(int(line.split(",")[0]))
         except ValueError as exc:
             raise RemasterError(f"unexpected frame duration {line!r}", exit_code=2) from exc
+    return completed.returncode, durations
+
+
+def frame_durations(ffprobe: str, path: Path) -> list[int]:
+    # Newer ffprobe removed pkt_duration in favour of duration; older ones only have pkt_duration.
+    _, durations = _read_frame_durations(ffprobe, path, "duration")
+    if not durations:
+        _, durations = _read_frame_durations(ffprobe, path, "pkt_duration")
     if not durations:
         raise RemasterError("input has no video frames", exit_code=2)
     return durations
