@@ -104,7 +104,8 @@ def assert_encoder_available(ffmpeg: str, encoder: str) -> None:
 
 
 def svt_logical_cores(log: str) -> int | None:
-    match = re.search(r"Number of logical cores available:\s*(\d+)", log)
+    # SVT-AV1 2.x renamed the line to "Level of Parallelism"
+    match = re.search(r"(?:Number of logical cores available|Level of Parallelism):\s*(\d+)", log)
     if not match:
         return None
     return int(match.group(1))
