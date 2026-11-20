@@ -15,7 +15,7 @@ jobs:
           node-version: "22"
       - run: npm ci
       - run: python3 scripts/make_icons.py
-      - run: node --test tests/test_vault.mjs tests/test_filmmath.mjs tests/test_pixels.mjs
+      - run: node --test tests/test_vault.mjs tests/test_filmmath.mjs tests/test_pixels.mjs tests/test_studio.mjs tests/test_nenc.mjs tests/test_blobs.mjs
       - run: node scripts/build_web.mjs
 
   desktop-cli:

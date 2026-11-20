@@ -77,7 +77,7 @@ function audioData(rendered, frameStart, frameCount) {
 export async function encodeCanvasFilm({ canvas, fps, bitrate, frameCount, audioBuffer, signal, draw }) {
   const width = canvas.width;
   const height = canvas.height;
-  if (width < 1280 || height < 720) throw new Error("refusing to save below 720p");
+  if (Math.min(width, height) < 720) throw new Error("refusing to save below 720p");
   const videoConfig = await supportedVideoConfig(width, height, bitrate, fps);
   if (!videoConfig) {
     throw new Error(

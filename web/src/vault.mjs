@@ -184,54 +184,92 @@ function bump(record, kind, now) {
   };
 }
 
-export async function createVault(password, phraseWords, kdf = PRODUCTION_SCRYPT) {
+async function sealSlot(secret, vaultKey, kdf) {
+  const salt = bytesToB64(randomBytes(16));
+  const id = bytesToB64(randomBytes(9)).replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
+  const kek = await derive("password", secret, salt, kdf);
+  const wrap = await wrapKey(kek, vaultKey);
+  kek.fill(0);
+  return { id, salt, wrap };
+}
+
+export async function createVault(password, phraseWords, kdf = PRODUCTION_SCRYPT, secondPassword = null) {
   assertPassword(password);
+  if (secondPassword != null && secondPassword !== "") assertPassword(secondPassword);
+  if (secondPassword && secondPassword === password) {
+    throw new VaultError("Use a different second password.", { code: "weak" });
+  }
   const parsed = Array.isArray(phraseWords) ? parsePhrase(phraseWords.join(" ")) : parsePhrase(phraseWords);
   if (!parsed.ok) throw new VaultError("The recovery phrase is not valid.", { code: "phrase" });
   const vaultKey = randomBytes(32);
-  const passwordSalt = bytesToB64(randomBytes(16));
-  const passwordKey = await derive("password", password, passwordSalt, kdf);
+  const otherKey = randomBytes(32);
+  const realIndex = randomBytes(1)[0] & 1;
+  const otherSecret = secondPassword ? secondPassword : bytesToB64(randomBytes(24));
+  const slots = new Array(2);
+  slots[realIndex] = await sealSlot(password, vaultKey, kdf);
+  slots[1 - realIndex] = await sealSlot(otherSecret, otherKey, kdf);
   const recoverySalt = bytesToB64(randomBytes(16));
   const recoveryKey = await derive("phrase", parsed.normalized, recoverySalt, kdf);
+  const payload = new Uint8Array(33);
+  payload.set(vaultKey);
+  payload[32] = realIndex;
   const record = {
-    version: 1,
+    version: 2,
     kdf: { N: kdf.N, r: kdf.r, p: kdf.p, dkLen: kdf.dkLen || 32 },
-    passwordSalt,
-    passwordWrap: await wrapKey(passwordKey, vaultKey),
+    slots,
     recoverySalt,
-    recoveryWrap: await wrapKey(recoveryKey, vaultKey),
+    recoveryWrap: await wrapKey(recoveryKey, payload),
     passwordFailures: 0,
     passwordLockedUntil: 0,
     recoveryFailures: 0,
     recoveryLockedUntil: 0,
     createdAt: Date.now(),
   };
-  passwordKey.fill(0);
   recoveryKey.fill(0);
-  return { record, vaultKey, phrase: parsed.words };
+  otherKey.fill(0);
+  return { record, vaultKey, phrase: parsed.words, slotId: slots[realIndex].id };
 }
 
 export async function unlock(record, password, now = Date.now()) {
   if (record.passwordLockedUntil && now < record.passwordLockedUntil) {
     throw lockedError(record, record.passwordLockedUntil, now);
   }
-  const passwordKey = await derive("password", password, record.passwordSalt, kdfOf(record));
-  const vaultKey = await unwrapKey(passwordKey, record.passwordWrap);
-  passwordKey.fill(0);
-  if (!vaultKey) {
-    const next = bump(record, "password", now);
-    const wait = Math.max(1, Math.ceil((next.passwordLockedUntil - now) / 1000));
-    throw new VaultError("That password does not match.", {
-      code: "auth",
-      record: next,
-      retryAt: next.passwordLockedUntil,
-      waitSeconds: wait,
-    });
+  const slots = record.version === 2 && Array.isArray(record.slots) ? record.slots : null;
+  if (!slots) {
+    const passwordKey = await derive("password", password, record.passwordSalt, kdfOf(record));
+    const vaultKey = await unwrapKey(passwordKey, record.passwordWrap);
+    passwordKey.fill(0);
+    if (!vaultKey) return failPassword(record, now);
+    return {
+      vaultKey,
+      slotId: null,
+      record: { ...record, passwordFailures: 0, passwordLockedUntil: 0 },
+    };
   }
-  return {
-    vaultKey,
-    record: { ...record, passwordFailures: 0, passwordLockedUntil: 0 },
-  };
+  for (const slot of slots) {
+    const passwordKey = await derive("password", password, slot.salt, kdfOf(record));
+    const opened = await unwrapKey(passwordKey, slot.wrap);
+    passwordKey.fill(0);
+    if (opened && opened.length === 32) {
+      return {
+        vaultKey: opened,
+        slotId: slot.id,
+        record: { ...record, passwordFailures: 0, passwordLockedUntil: 0 },
+      };
+    }
+  }
+  return failPassword(record, now);
+}
+
+function failPassword(record, now) {
+  const next = bump(record, "password", now);
+  const wait = Math.max(1, Math.ceil((next.passwordLockedUntil - now) / 1000));
+  throw new VaultError("That password does not match.", {
+    code: "auth",
+    record: next,
+    retryAt: next.passwordLockedUntil,
+    waitSeconds: wait,
+  });
 }
 
 export async function recover(record, phraseText, newPassword, now = Date.now()) {
@@ -251,9 +289,9 @@ export async function recover(record, phraseText, newPassword, now = Date.now())
     });
   }
   const recoveryKey = await derive("phrase", parsed.normalized, record.recoverySalt, kdfOf(record));
-  const vaultKey = await unwrapKey(recoveryKey, record.recoveryWrap);
+  const opened = await unwrapKey(recoveryKey, record.recoveryWrap);
   recoveryKey.fill(0);
-  if (!vaultKey) {
+  if (!opened) {
     const next = bump(record, "recovery", now);
     const wait = Math.max(1, Math.ceil((next.recoveryLockedUntil - now) / 1000));
     throw new VaultError("Those words don’t match the recovery phrase.", {
@@ -265,10 +303,31 @@ export async function recover(record, phraseText, newPassword, now = Date.now())
   }
   const passwordSalt = bytesToB64(randomBytes(16));
   const passwordKey = await derive("password", newPassword, passwordSalt, kdfOf(record));
+  if (record.version === 2 && opened.length >= 33 && Array.isArray(record.slots)) {
+    const vaultKey = opened.subarray(0, 32);
+    const index = opened[32];
+    const wrap = await wrapKey(passwordKey, vaultKey);
+    passwordKey.fill(0);
+    const slots = record.slots.map((slot, i) => (i === index ? { ...slot, salt: passwordSalt, wrap } : slot));
+    return {
+      vaultKey,
+      slotId: record.slots[index]?.id || null,
+      record: {
+        ...record,
+        slots,
+        passwordFailures: 0,
+        passwordLockedUntil: 0,
+        recoveryFailures: 0,
+        recoveryLockedUntil: 0,
+      },
+    };
+  }
+  const vaultKey = opened;
   const passwordWrap = await wrapKey(passwordKey, vaultKey);
   passwordKey.fill(0);
   return {
     vaultKey,
+    slotId: null,
     record: {
       ...record,
       passwordSalt,

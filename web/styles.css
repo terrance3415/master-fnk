@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  --bg: #100e0c;
+  --bg: #130d19;
   --card: #1c1814;
   --card-2: #26211c;
   --ink: #f4efe6;
@@ -22,11 +22,50 @@ button { cursor: pointer; }
   width: min(480px, 100%);
   min-height: 100dvh;
   margin: 0 auto;
-  background:
-    radial-gradient(120% 50% at 50% -10%, rgba(226, 177, 90, 0.16), transparent 55%),
-    var(--bg);
+  background: #130d19;
   padding: calc(16px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));
 }
+.btn.share { background: #5ac484; color: #102216; font-weight: 700; }
+.studio { display: flex; flex-direction: column; gap: 12px; margin: -16px -18px 0; }
+.studio-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: #f4efe6; }
+.studio-bar strong { font-size: 0.95rem; }
+.edit-mark { color: #b3a79a; font-size: 0.85rem; }
+.export-pill { margin-left: auto; min-height: 36px; border: 0; border-radius: 999px; padding: 0 14px; background: var(--mode, #c84f7a); color: #1a1020; font-weight: 700; }
+.stage { position: relative; height: 42vh; min-height: 240px; overflow: hidden; background: #130d19; }
+.stage-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.stage-fig { position: absolute; left: 50%; bottom: 0; height: 88%; width: auto; max-width: 92%; transform: translateX(-50%); object-fit: contain; pointer-events: none; }
+.mode-export .stage-fig { height: 78%; }
+.stage-fig.flying { animation: trio-fly 800ms cubic-bezier(.2, .7, .2, 1) forwards; }
+@keyframes trio-fly {
+  from { transform: translate3d(calc(-50% + 48px), -46%, 0) scale(0.88); }
+  to { transform: translate3d(-50%, 0, 0) scale(1); }
+}
+.export-float { position: absolute; left: 16px; right: 16px; bottom: 18px; background: rgba(19, 13, 25, 0.82); border-radius: 16px; padding: 12px; }
+.export-float p { margin: 0 0 8px; }
+.mode-nav { display: flex; flex-direction: column; gap: 8px; padding: 0 12px; }
+.mode-btn { display: flex; align-items: center; gap: 10px; min-height: 56px; border-radius: 16px; border: 1px solid rgba(244, 239, 230, 0.12); background: #1b1422; color: #f4efe6; text-align: left; padding: 6px 12px; }
+.mode-btn img { height: 42px; width: auto; object-fit: contain; transform: translate3d(0, 0, 0); }
+.mode-btn.flying img { animation: mode-fly 800ms cubic-bezier(.2, .7, .2, 1) forwards; }
+@keyframes mode-fly {
+  from { transform: translate3d(46px, -54px, 0) scale(0.82); }
+  to { transform: translate3d(0, 0, 0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mode-btn.flying img, .stage-fig.flying { animation: none; }
+}
+.mode-btn i { width: 4px; align-self: stretch; border-radius: 99px; background: currentColor; }
+.mode-btn.video { color: #c84f7a; }
+.mode-btn.music { color: #5ac484; }
+.mode-btn.captured { color: #4e58b9; }
+.mode-btn.export { color: #f4efe6; }
+.mode-btn span { color: #f4efe6; font-weight: 700; }
+.mode-btn.on { outline: 2px solid var(--mode, #c84f7a); }
+.export-rows { display: flex; flex-direction: column; gap: 8px; padding: 0 12px; }
+.export-row { border-radius: 14px; padding: 12px 14px; color: #140c16; font-weight: 700; }
+.export-row.video { background: #c84f7a; }
+.export-row.music { background: #5ac484; }
+.export-row.captured { background: #4e58b9; color: #f4efe6; }
+.studio .card, .studio .stack, .studio .looks, .studio .chips, .studio label, .studio .note, .studio .error { margin-left: 12px; margin-right: 12px; }
 h1, h2 { font-family: Georgia, "Iowan Old Style", Palatino, serif; font-weight: 600; letter-spacing: -0.02em; }
 h1 { font-size: 2.1rem; margin: 0 0 8px; }
 h2 { font-size: 1.45rem; margin: 0; }
@@ -110,6 +149,9 @@ input[type="text"], input[type="password"], input:not([type]) {
 .progress { height: 10px; background: #2a241e; border-radius: 99px; overflow: hidden; }
 .progress span { display: block; height: 100%; width: 0; background: var(--gold); }
 video.preview { width: 100%; border-radius: 16px; background: #000; }
+.compare { position: relative; }
+.compare-before { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+textarea { min-height: 72px; border-radius: 12px; border: 1px solid var(--line); background: #0c0b0a; padding: 12px; font-size: 16px; }
 .footer { margin-top: 18px; font-size: 0.82rem; color: var(--muted); }
 .check { flex-direction: row; align-items: center; gap: 10px; color: var(--ink); min-height: 44px; }
 .hidden { display: none; }
