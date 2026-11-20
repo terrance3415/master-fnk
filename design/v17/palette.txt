@@ -1,0 +1,7 @@
+Colors sampled from the v14 mockups (Export button color per screen):
+video (Jean): pink #C84F7A
+music (Rogue): green #5AC484
+captured (Storm): blue-violet #4E58B9
+export: each row in its own color, with the trio
+base dark plum background: #130D19
+Status: FINAL (approved by Terrance, Nov 20, 2026, v17)
