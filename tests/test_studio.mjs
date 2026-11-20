@@ -5,6 +5,7 @@ import { detectBeats, micCleanup, mixFilmAudio, stereoWiden } from "../web/src/a
 import { detectChapters } from "../web/src/chapters.mjs";
 import { applyCinematic, applyCorrection, suggestCorrection } from "../web/src/color.mjs";
 import { ASPECTS, buildTimeline, insertClipAt, outputSize, sourceRanges } from "../web/src/filmmath.mjs";
+import { FLIGHT_MS, LAND_AT_MS, flightSrc } from "../web/src/flight.mjs";
 import { interpolateRgba } from "../web/src/interp.mjs";
 import { cuesFromScript, parseSrt, toSrt } from "../web/src/subs.mjs";
 import { FACET_WEIGHTS, GROUP_THRESHOLD, cosine, describeEmbeddings, facetSimilarity, groupSimilar } from "../web/src/tags.mjs";
@@ -186,6 +187,16 @@ test("low-confidence tags are flagged and a close call is dropped", () => {
   });
   assert.equal(described.facets.room, null);
   assert.ok(described.tags.some((tag) => tag.label === "cup"));
+});
+
+test("a mode figure flies, then stays on the landed cutout", () => {
+  const theme = { fly: "flying.png", fig: "landed.png" };
+  assert.equal(flightSrc(theme, false, 0), "flying.png");
+  assert.equal(flightSrc(theme, false, LAND_AT_MS - 1), "flying.png");
+  assert.equal(flightSrc(theme, false, LAND_AT_MS), "landed.png");
+  assert.equal(flightSrc(theme, true, 0), "landed.png");
+  assert.ok(FLIGHT_MS >= 600 && FLIGHT_MS <= 900);
+  assert.ok(LAND_AT_MS < FLIGHT_MS);
 });
 
 test("chapters follow a hard cut and captions round-trip", () => {

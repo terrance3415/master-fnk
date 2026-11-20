@@ -4,6 +4,7 @@ import { suggestCorrection } from "./color.mjs";
 import { detectBeats } from "./audio.mjs";
 import { encodeCanvasFilm } from "./encode.mjs";
 import { FPS, PRESETS, RESOLUTIONS, applyPreset, buildTimeline, insertClipAt, outputSize } from "./filmmath.mjs";
+import { FLIGHT_MS, LAND_AT_MS, flightSrc } from "./flight.mjs";
 import { encryptBytes as nencEncrypt } from "./nenc.mjs";
 import { renderFilm, sampleCorner } from "./render.mjs";
 import { kvDel, kvGet, kvSet, wipeDb } from "./store.mjs";
@@ -24,11 +25,31 @@ import {
 } from "./vault.mjs";
 
 const STUDIO = {
-  video: { label: "Video", color: "#C84F7A", bg: "./v17/bg_video_jean.jpg", fig: "./v17/fig_jean_landed.png" },
-  music: { label: "Music", color: "#5AC484", bg: "./v17/bg_music_rogue.jpg", fig: "./v17/fig_rogue_landed.png" },
-  captured: { label: "Captured", color: "#4E58B9", bg: "./v17/bg_captured_storm.jpg", fig: "./v17/fig_storm_landed.png" },
-  export: { label: "Export", color: "#F4EFE6", bg: "./v17/bg_export_trio.jpg", fig: "./v17/fig_trio_landed.png" },
+  video: { label: "Video", color: "#C84F7A", bg: "./v17/bg_video_jean.jpg", fig: "./v17/fig_jean_landed.png", fly: "./v17/fig_jean_flying.png" },
+  music: { label: "Music", color: "#5AC484", bg: "./v17/bg_music_rogue.jpg", fig: "./v17/fig_rogue_landed.png", fly: "./v17/fig_rogue_flying.png" },
+  captured: { label: "Captured", color: "#4E58B9", bg: "./v17/bg_captured_storm.jpg", fig: "./v17/fig_storm_landed.png", fly: "./v17/fig_storm_flying.png" },
+  export: { label: "Export", color: "#F4EFE6", bg: "./v17/bg_export_trio.jpg", fig: "./v17/fig_trio_landed.png", fly: "./v17/fig_trio_flying.png" },
 };
+let flightToken = 0;
+
+function reducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function scheduleLanding(mode) {
+  const token = ++flightToken;
+  const theme = STUDIO[mode];
+  window.setTimeout(() => {
+    if (token !== flightToken) return;
+    document.querySelectorAll(`[data-flight="${mode}"]`).forEach((img) => {
+      img.src = theme.fig;
+    });
+  }, LAND_AT_MS);
+  window.setTimeout(() => {
+    if (token !== flightToken) return;
+    document.querySelectorAll(".flying").forEach((node) => node.classList.remove("flying"));
+  }, FLIGHT_MS);
+}
 
 const app = document.getElementById("app");
 const state = {
@@ -63,7 +84,10 @@ function esc(value) {
 }
 
 function paint() {
+  const flight = state.flight;
   app.innerHTML = screens[state.screen] ? screens[state.screen]() : screens.working();
+  state.flight = null;
+  if (flight && STUDIO[flight] && !reducedMotion()) scheduleLanding(flight);
   const wait = document.querySelector("[data-wait]");
   if (wait && state.record) startCountdown(state.record.passwordLockedUntil || state.record.recoveryLockedUntil || 0);
 }
@@ -193,6 +217,7 @@ const screens = {
     const draft = state.draft;
     const mode = STUDIO[draft.studioMode] ? draft.studioMode : "video";
     const theme = STUDIO[mode];
+    const flying = state.flight === mode && !reducedMotion();
     const plan = buildTimeline(draft.clips, draft);
     const videos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "video");
     const photos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "image");
@@ -263,10 +288,13 @@ const screens = {
       </header>
       <div class="stage">
         <img class="stage-bg" src="${theme.bg}" alt="">
-        <img class="stage-fig" src="${theme.fig}" alt="">
+        <img class="stage-fig ${flying && mode === "export" ? "flying" : ""}" data-flight="${flying && mode === "export" ? "export" : ""}" src="${flightSrc(theme, !(flying && mode === "export"), 0)}" alt="">
       </div>
       <nav class="mode-nav" aria-label="Editor mode">
-        ${Object.entries(STUDIO).map(([id, item]) => `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""}" data-action="pick-studio" data-studio="${id}"><img src="${item.fig}" alt=""><i></i><span>${item.label}</span></button>`).join("")}
+        ${Object.entries(STUDIO).map(([id, item]) => {
+          const live = flying && id === mode;
+          return `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""} ${live ? "flying" : ""}" data-action="pick-studio" data-studio="${id}"><img data-flight="${live ? id : ""}" src="${flightSrc(item, !live, 0)}" alt=""><i></i><span>${item.label}</span></button>`;
+        }).join("")}
       </nav>
       <input id="media-input" class="hidden" type="file" accept="video/*,image/*" multiple>
       <input id="music-input" class="hidden" type="file" accept="audio/*">
@@ -275,6 +303,7 @@ const screens = {
     </div>`;
   },
   render() {
+    const flying = state.flight === "export" && !reducedMotion();
     return `<div class="studio mode-export">
       <header class="studio-bar">
         <button type="button" class="icon" data-action="cancel-render">Stop</button>
@@ -282,14 +311,14 @@ const screens = {
         <span class="edit-mark">Edit</span>
       </header>
       <div class="stage">
-        <img class="stage-bg" src="./v17/bg_export_trio.jpg" alt="">
-        <img class="stage-fig" src="./v17/fig_trio_landed.png" alt="">
+        <img class="stage-bg" src="${STUDIO.export.bg}" alt="">
+        <img class="stage-fig ${flying ? "flying" : ""}" data-flight="${flying ? "export" : ""}" src="${flightSrc(STUDIO.export, !flying, 0)}" alt="">
         <div class="export-float">
           <p data-progress-label>${esc(state.working || "Starting…")}</p>
           <div class="progress" aria-hidden="true"><span data-progress-bar></span></div>
         </div>
       </div>
-      <p class="note">Keep this screen open. The trio stays still while this version builds the film.</p>
+      <p class="note">Keep this screen open. A longer film, 1080p, or Enhance takes longer. 4K is the slowest.</p>
     </div>`;
   },
   done() {
@@ -651,6 +680,7 @@ const actions = {
     const next = button.dataset.studio;
     if (!STUDIO[next]) return;
     state.draft.studioMode = next;
+    state.flight = reducedMotion() ? null : next;
     paint();
     saveDraft();
   },
@@ -740,6 +770,7 @@ const actions = {
     state.screen = "render";
     state.working = "Starting…";
     state.error = "";
+    state.flight = reducedMotion() ? null : "export";
     paint();
     const project = {
       ...state.draft,
