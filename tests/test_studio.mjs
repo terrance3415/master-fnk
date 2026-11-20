@@ -7,7 +7,7 @@ import { applyCinematic, applyCorrection, suggestCorrection } from "../web/src/c
 import { ASPECTS, buildTimeline, insertClipAt, outputSize, sourceRanges } from "../web/src/filmmath.mjs";
 import { interpolateRgba } from "../web/src/interp.mjs";
 import { cuesFromScript, parseSrt, toSrt } from "../web/src/subs.mjs";
-import { cosine, embeddingFromFrames, groupSimilar, tagsFromFrames } from "../web/src/tags.mjs";
+import { FACET_WEIGHTS, GROUP_THRESHOLD, cosine, describeEmbeddings, facetSimilarity, groupSimilar } from "../web/src/tags.mjs";
 
 test("trim, middle cut, and insert keep the pieces in order", () => {
   const host = { id: "a", kind: "video", duration: 10, width: 1280, height: 720, trimIn: 1, trimOut: 9, cutIn: 4, cutOut: 5 };
@@ -137,41 +137,55 @@ test("interpolation moves a block instead of only holding a frame", () => {
   assert.ok(center > 6 && center < 22);
 });
 
-test("sampled frames get at least 10 tags and similar frames group", () => {
-  const sky = new Uint8ClampedArray(64 * 36 * 4);
-  for (let y = 0; y < 36; y++) {
-    for (let x = 0; x < 64; x++) {
-      const p = (y * 64 + x) * 4;
-      const upper = y < 16;
-      sky[p] = upper ? 70 : 200;
-      sky[p + 1] = upper ? 140 : 180;
-      sky[p + 2] = upper ? 230 : 110;
-      sky[p + 3] = 255;
-    }
-  }
-  const tags = tagsFromFrames([{ rgba: sky, width: 64, height: 36 }]);
-  assert.ok(tags.length >= 10);
-  assert.ok(tags.some((tag) => tag.layer === "scene" || tag.layer === "setting"));
-  const night = new Uint8ClampedArray(sky.length);
-  for (let i = 0; i < night.length; i += 4) {
-    night[i] = 8;
-    night[i + 1] = 10;
-    night[i + 2] = 20;
-    night[i + 3] = 255;
-  }
-  const a = embeddingFromFrames([{ rgba: sky, width: 64, height: 36 }]);
-  const b = embeddingFromFrames([{ rgba: sky, width: 64, height: 36 }]);
-  const c = embeddingFromFrames([{ rgba: night, width: 64, height: 36 }]);
-  assert.ok(cosine(a, b) > cosine(a, c));
-  const groups = groupSimilar(
-    [
-      { id: "1", embedding: a },
-      { id: "2", embedding: b },
-      { id: "3", embedding: c },
-    ],
-    0.95,
-  );
-  assert.ok(groups.some((group) => group.length >= 2));
+test("facet grouping needs more than the same room", () => {
+  const weight = Object.values(FACET_WEIGHTS).reduce((sum, value) => sum + value, 0);
+  assert.ok(Math.abs(weight - 1) < 1e-6);
+  assert.ok(Math.max(...Object.values(FACET_WEIGHTS)) < GROUP_THRESHOLD);
+  const shared = {
+    embedding: [1, 0],
+    facets: {
+      room: "kitchen",
+      furniture: ["stove", "refrigerator"],
+      objects: ["cup"],
+      clothing: ["blue shirt"],
+      actions: ["cooking at a stove"],
+      sequence: ["walking through a room", "cooking at a stove", "eating a meal"],
+      peopleIds: ["p1"],
+      audio: ["dishes"],
+      camera: ["wide shot", "handheld"],
+      time: "evening",
+      lighting: ["overhead light"],
+      mood: ["lively"],
+      posed: "candid",
+    },
+  };
+  const twin = structuredClone(shared);
+  const roomOnly = {
+    embedding: [0, 1],
+    facets: { room: "kitchen", furniture: [], objects: [], clothing: [], actions: [], sequence: [], peopleIds: [], audio: [], camera: [], lighting: [], mood: [] },
+  };
+  assert.ok(facetSimilarity(shared, twin).score >= GROUP_THRESHOLD);
+  assert.ok(facetSimilarity(shared, roomOnly).score < GROUP_THRESHOLD);
+  const groups = groupSimilar([shared, twin, roomOnly]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].length, 2);
+});
+
+test("low-confidence tags are flagged and a close call is dropped", () => {
+  const axis = (x) => [x, Math.sqrt(1 - x * x)];
+  const prompts = [
+    { facet: "room", label: "kitchen", layer: "setting", mode: "exclusive", minScore: 0.2, minMargin: 0.05, vector: axis(1) },
+    { facet: "room", label: "bedroom", layer: "setting", mode: "exclusive", minScore: 0.2, minMargin: 0.05, vector: axis(0.99) },
+    { facet: "object", label: "cup", layer: "subject", mode: "multi", minScore: 0.2, minMargin: 0.02, vector: axis(0.9) },
+    { facet: "baseline", label: "baseline", mode: "baseline", vector: axis(0.2) },
+  ];
+  const described = describeEmbeddings({
+    meanEmbedding: axis(1),
+    frameEmbeddings: [axis(1)],
+    prompts,
+  });
+  assert.equal(described.facets.room, null);
+  assert.ok(described.tags.some((tag) => tag.label === "cup"));
 });
 
 test("chapters follow a hard cut and captions round-trip", () => {

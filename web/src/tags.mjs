@@ -1,149 +1,34 @@
 /**
- * On-device tags from sampled frames.
- * This is a fixed vocabulary scored against color and layout measurements.
- * It does not upload frames. A neural CLIP weight file is not bundled.
+ * Facet scoring and grouping for on-device tags.
+ * The vision model lives in tagger.mjs. This file only does the math.
  */
 
-export const TAG_LAYERS = ["scene", "setting", "subject", "activity", "lighting", "mood"];
+export const TAGGER_ID = "mobileclip-s0-fp32+yamnet-v1";
+export const GROUP_THRESHOLD = 0.62;
 
-const VOCAB = [
-  ["blue sky", "scene", (f) => f.skyBlue],
-  ["cloud", "scene", (f) => f.skyWhite],
-  ["sunset", "scene", (f) => f.warmSky * f.lowSun],
-  ["night", "scene", (f) => f.dark * (1 - f.indoor)],
-  ["beach", "setting", (f) => f.sand * f.skyBlue * 1.3],
-  ["indoor", "setting", (f) => f.indoor],
-  ["outdoor", "setting", (f) => 1 - f.indoor],
-  ["street", "setting", (f) => f.grayGround * f.edge],
-  ["car", "subject", (f) => f.edge * f.grayGround * (1 - f.green)],
-  ["crowd", "subject", (f) => f.edge * f.detail * (f.skin + 0.2)],
-  ["person", "subject", (f) => f.skin * (0.4 + f.detail)],
-  ["water", "subject", (f) => f.water],
-  ["tree", "subject", (f) => f.green * f.skyBlue],
-  ["food", "subject", (f) => f.warm * f.indoor * (1 - f.skyBlue)],
-  ["walking", "activity", (f) => f.edge * (1 - f.indoor) * 0.8],
-  ["sitting", "activity", (f) => f.indoor * (1 - f.edge) * 0.7],
-  ["driving", "activity", (f) => f.grayGround * f.edge * f.dark * 0.5 + f.grayGround * f.edge * 0.4],
-  ["daylight", "lighting", (f) => f.bright * (1 - f.warm)],
-  ["golden hour", "lighting", (f) => f.warm * f.bright * 0.8],
-  ["dim", "lighting", (f) => f.dark],
-  ["backlit", "lighting", (f) => f.contrast * f.skyBlue],
-  ["harsh light", "lighting", (f) => f.contrast * f.bright],
-  ["calm", "mood", (f) => (1 - f.edge) * (1 - f.contrast)],
-  ["busy", "mood", (f) => f.edge * f.detail],
-  ["warm", "mood", (f) => f.warm],
-  ["cool", "mood", (f) => f.cool],
-  ["joyful", "mood", (f) => f.bright * f.warm * 0.6 + f.skyBlue * 0.3],
-  ["quiet", "mood", (f) => f.dark * (1 - f.edge)],
-];
-
-function px(rgba, i) {
-  return [rgba[i], rgba[i + 1], rgba[i + 2]];
-}
-
-export function measureFrame(rgba, width, height) {
-  const stride = Math.max(1, Math.floor((width * height) / 2500));
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  let n = 0;
-  let skyBlue = 0;
-  let skyWhite = 0;
-  let sand = 0;
-  let green = 0;
-  let skin = 0;
-  let water = 0;
-  let dark = 0;
-  let bright = 0;
-  let warm = 0;
-  let cool = 0;
-  let gray = 0;
-  const horizon = Math.floor(height * 0.45);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const idx = (y * width + x) * 4;
-      if ((idx / 4) % stride !== 0) continue;
-      const [pr, pg, pb] = px(rgba, idx);
-      const yv = (pr * 0.2126 + pg * 0.7152 + pb * 0.0722) / 255;
-      r += pr;
-      g += pg;
-      b += pb;
-      n++;
-      if (yv < 0.18) dark++;
-      if (yv > 0.72) bright++;
-      if (pr > pb + 18 && pr > pg) warm++;
-      if (pb > pr + 12) cool++;
-      if (Math.abs(pr - pg) < 14 && Math.abs(pg - pb) < 14) gray++;
-      if (y < horizon && pb > pr + 15 && pb > 80 && pg > 60) skyBlue++;
-      if (y < horizon && pr > 180 && pg > 180 && pb > 180) skyWhite++;
-      if (y >= horizon && pr > 150 && pg > 120 && pb < 110 && pr > pb) sand++;
-      if (pg > pr + 10 && pg > pb) green++;
-      if (pr > 140 && pg > 90 && pb > 60 && pr > pb && pr - pg < 80 && y > height * 0.2) skin++;
-      if (pb > 70 && pb > pr && pg > 50 && y > height * 0.35) water++;
-    }
-  }
-  const inv = n || 1;
-  let edge = 0;
-  let samples = 0;
-  const step = Math.max(1, Math.floor(width / 48));
-  for (let y = step; y < height - step; y += step) {
-    for (let x = step; x < width - step; x += step) {
-      const a = px(rgba, (y * width + x) * 4);
-      const c = px(rgba, (y * width + x + step) * 4);
-      edge += Math.abs(a[0] - c[0]) + Math.abs(a[1] - c[1]) + Math.abs(a[2] - c[2]);
-      samples++;
-    }
-  }
-  const edgeN = samples ? edge / samples / (255 * 3) : 0;
-  return {
-    skyBlue: skyBlue / inv,
-    skyWhite: skyWhite / inv,
-    sand: sand / inv,
-    green: green / inv,
-    skin: skin / inv,
-    water: water / inv,
-    dark: dark / inv,
-    bright: bright / inv,
-    warm: warm / inv,
-    cool: cool / inv,
-    grayGround: gray / inv,
-    indoor: clamp01(0.55 * (1 - skyBlue / inv) * (1 - (bright / inv)) + (gray / inv) * 0.3),
-    edge: clamp01(edgeN * 2.2),
-    detail: clamp01(edgeN * 3),
-    contrast: clamp01(Math.abs(bright - dark) / inv * inv + edgeN),
-    lowSun: clamp01((warm / inv) * 2),
-    warmSky: clamp01((warm / inv) * (skyWhite / inv + 0.2)),
-    mean: [r / inv / 255, g / inv / 255, b / inv / 255],
-  };
-}
-
-function clamp01(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-export function embeddingFromFrames(frames) {
-  const acc = new Array(24).fill(0);
-  frames.forEach((frame) => {
-    const m = measureFrame(frame.rgba, frame.width, frame.height);
-    const values = [
-      m.skyBlue, m.skyWhite, m.sand, m.green, m.skin, m.water, m.dark, m.bright,
-      m.warm, m.cool, m.grayGround, m.indoor, m.edge, m.detail, m.contrast, m.lowSun,
-      m.mean[0], m.mean[1], m.mean[2], m.warmSky, 1 - m.indoor, m.edge * m.detail,
-      m.bright * m.warm, m.dark * m.cool,
-    ];
-    values.forEach((value, i) => {
-      acc[i] += value;
-    });
-  });
-  const scale = frames.length || 1;
-  return acc.map((value) => value / scale);
-}
+/** Weights sum to 1. No single facet can reach GROUP_THRESHOLD on its own. */
+export const FACET_WEIGHTS = Object.freeze({
+  scene: 0.14,
+  room: 0.08,
+  furniture: 0.08,
+  objects: 0.1,
+  clothing: 0.1,
+  actions: 0.1,
+  sequence: 0.08,
+  people: 0.1,
+  audio: 0.06,
+  camera: 0.04,
+  time: 0.04,
+  lighting: 0.04,
+  mood: 0.02,
+  posed: 0.02,
+});
 
 export function cosine(a, b) {
   let dot = 0;
   let aa = 0;
   let bb = 0;
-  const n = Math.min(a.length, b.length);
+  const n = Math.min(a?.length || 0, b?.length || 0);
   for (let i = 0; i < n; i++) {
     dot += a[i] * b[i];
     aa += a[i] * a[i];
@@ -153,52 +38,291 @@ export function cosine(a, b) {
   return dot / Math.sqrt(aa * bb);
 }
 
-export function tagsFromFrames(frames, limit = 12) {
-  if (!frames?.length) return [];
-  const measures = frames.map((frame) => measureFrame(frame.rgba, frame.width, frame.height));
-  const scored = VOCAB.map(([label, layer, score]) => {
-    const value = measures.reduce((sum, frame) => sum + score(frame), 0) / measures.length;
-    return { label, layer, score: value };
-  });
-  scored.sort((a, b) => b.score - a.score);
-  const picked = [];
-  for (const tag of scored) {
-    if (picked.length >= limit) break;
-    if (tag.score < 0.04 && picked.length >= 10) break;
-    picked.push({ label: tag.label, layer: tag.layer, score: Math.round(tag.score * 1000) / 1000 });
-  }
-  for (const tag of scored) {
-    if (picked.length >= 10) break;
-    if (!picked.some((item) => item.label === tag.label)) {
-      picked.push({ label: tag.label, layer: tag.layer, score: Math.round(tag.score * 1000) / 1000 });
-    }
-  }
-  return picked;
+export function jaccard(a, b) {
+  const left = new Set(a || []);
+  const right = new Set(b || []);
+  if (!left.size && !right.size) return 1;
+  let hit = 0;
+  for (const item of left) if (right.has(item)) hit += 1;
+  const union = left.size + right.size - hit;
+  return union ? hit / union : 0;
 }
 
-export function editTags(tags, { add, remove } = {}) {
-  const next = (tags || []).map((tag) => ({ ...tag }));
-  if (remove) {
-    return next.filter((tag) => tag.label !== remove);
-  }
-  if (add?.label) {
-    if (!next.some((tag) => tag.label === add.label)) {
-      next.push({ label: String(add.label).slice(0, 40), layer: add.layer || "custom", score: 1 });
+export function sequenceSimilarity(a, b) {
+  const left = a || [];
+  const right = b || [];
+  if (left.length < 2 || right.length < 2) return 0;
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const dp = new Uint16Array(rows * cols);
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const same = left[i - 1] === right[j - 1];
+      dp[i * cols + j] = same
+        ? dp[(i - 1) * cols + (j - 1)] + 1
+        : Math.max(dp[(i - 1) * cols + j], dp[i * cols + (j - 1)]);
     }
   }
-  return next;
+  return dp[rows * cols - 1] / Math.max(left.length, right.length);
 }
 
-export function groupSimilar(items, threshold = 0.82) {
+function byFacet(prompts) {
+  const groups = new Map();
+  for (const prompt of prompts || []) {
+    if (!groups.has(prompt.facet)) groups.set(prompt.facet, []);
+    groups.get(prompt.facet).push(prompt);
+  }
+  return groups;
+}
+
+function scoreList(embedding, prompts) {
+  return prompts.map((prompt) => ({ ...prompt, score: cosine(embedding, prompt.vector) }));
+}
+
+export function pickExclusive(scored, { forceLow = false } = {}) {
+  if (!scored?.length) return null;
+  const ranked = [...scored].sort((a, b) => b.score - a.score);
+  const best = ranked[0];
+  const second = ranked[1];
+  const margin = best.score - (second?.score || 0);
+  const minScore = best.minScore ?? 0.18;
+  const minMargin = best.minMargin ?? 0.015;
+  if (best.score < minScore || margin < minMargin * 0.5) return null;
+  const confidence = !forceLow && best.score >= minScore && margin >= minMargin ? "high" : "low";
+  if (confidence === "low" && margin < minMargin * 0.5) return null;
+  return { label: best.label, layer: best.layer, facet: best.facet, score: round3(best.score), margin: round3(margin), confidence };
+}
+
+export function pickMulti(scored, baseline = 0) {
+  const kept = [];
+  for (const item of [...(scored || [])].sort((a, b) => b.score - a.score)) {
+    const minScore = item.minScore ?? 0.2;
+    const minMargin = item.minMargin ?? 0.015;
+    if (item.score < minScore) continue;
+    const margin = item.score - baseline;
+    if (margin < minMargin * 0.5) continue;
+    const confidence = margin >= minMargin && item.score >= minScore + 0.02 ? "high" : "low";
+    kept.push({
+      label: item.label,
+      layer: item.layer,
+      facet: item.facet,
+      score: round3(item.score),
+      margin: round3(margin),
+      confidence,
+    });
+    if (kept.length >= 6) break;
+  }
+  return kept;
+}
+
+function round3(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function highLabels(picks) {
+  return (picks || []).filter((item) => item && item.confidence === "high").map((item) => item.label);
+}
+
+export function cameraFromMotion(shifts = []) {
+  if (!shifts.length) return { labels: [], confidence: "low" };
+  let mean = 0;
+  let pan = 0;
+  let signChanges = 0;
+  let lastSign = 0;
+  for (const shift of shifts) {
+    const mag = Math.hypot(shift.dx || 0, shift.dy || 0);
+    mean += mag;
+    pan += shift.dx || 0;
+    const sign = Math.sign(shift.dx || 0);
+    if (sign && lastSign && sign !== lastSign) signChanges += 1;
+    if (sign) lastSign = sign;
+  }
+  mean /= shifts.length;
+  const labels = [];
+  if (mean < 0.35) labels.push("static");
+  else if (Math.abs(pan) > shifts.length * 0.8 && signChanges <= 1) labels.push("panning");
+  else labels.push("handheld");
+  return { labels, confidence: shifts.length >= 2 ? "high" : "low" };
+}
+
+export function audioTagsFromScores(scores = {}) {
+  const ranked = Object.entries(scores)
+    .filter(([, value]) => value >= 0.2)
+    .sort((a, b) => b[1] - a[1]);
+  if (scores.silence >= 0.85) return [{ label: "silence", layer: "audio", facet: "audio", score: round3(scores.silence), confidence: "high" }];
+  return ranked.slice(0, 4).map(([label, score]) => ({
+    label,
+    layer: "audio",
+    facet: "audio",
+    score: round3(score),
+    confidence: score >= 0.35 ? "high" : "low",
+  }));
+}
+
+export function personName(index) {
+  if (index < 26) return `Person ${String.fromCharCode(65 + index)}`;
+  return `Person ${index + 1}`;
+}
+
+/** Match anonymous appearance embeddings. High threshold to avoid merging different people. */
+export function matchPeople(faceEmbeddings, catalog, threshold = 0.72) {
+  const people = Array.isArray(catalog) ? catalog : [];
+  const ids = [];
+  for (const embedding of faceEmbeddings || []) {
+    let best = null;
+    let bestScore = threshold;
+    for (const person of people) {
+      const score = cosine(embedding, person.embedding);
+      if (score >= bestScore) {
+        best = person;
+        bestScore = score;
+      }
+    }
+    if (!best) {
+      best = {
+        id: `p${people.length + 1}`,
+        name: personName(people.length),
+        embedding: Array.from(embedding).map((value) => round3(value)),
+      };
+      people.push(best);
+    }
+    if (!ids.includes(best.id)) ids.push(best.id);
+  }
+  return { ids, people };
+}
+
+function topAction(embedding, prompts) {
+  const actions = (prompts || []).filter((prompt) => prompt.facet === "action");
+  let best = null;
+  for (const prompt of actions) {
+    const score = cosine(embedding, prompt.vector);
+    if (!best || score > best.score) best = { label: prompt.label, score, minScore: prompt.minScore ?? 0.2 };
+  }
+  if (!best || best.score < best.minScore) return null;
+  return best.label;
+}
+
+export function describeEmbeddings({
+  meanEmbedding,
+  frameEmbeddings = [],
+  prompts = [],
+  shifts = [],
+  audioScores = null,
+  people = [],
+  faceEmbeddings = [],
+} = {}) {
+  const groups = byFacet(prompts);
+  const scoredMean = new Map();
+  for (const [facet, list] of groups) scoredMean.set(facet, scoreList(meanEmbedding, list));
+  const baseline = (scoredMean.get("baseline") || [])[0]?.score || 0;
+  const room = pickExclusive(scoredMean.get("room"));
+  const peopleCount = pickExclusive(scoredMean.get("people"));
+  const time = pickExclusive(scoredMean.get("time"));
+  const framing = pickExclusive(scoredMean.get("camera"));
+  const posed = pickExclusive(scoredMean.get("posed"), { forceLow: true });
+  const furniture = pickMulti(scoredMean.get("furniture"), baseline);
+  const clothing = pickMulti(scoredMean.get("clothing"), baseline);
+  const actions = pickMulti(scoredMean.get("action"), baseline);
+  const objects = pickMulti(scoredMean.get("object"), baseline);
+  const lighting = pickMulti(scoredMean.get("lighting"), baseline);
+  const mood = pickMulti(scoredMean.get("mood"), baseline);
+  const sequence = [];
+  for (const embedding of frameEmbeddings) {
+    const label = topAction(embedding, prompts);
+    if (label && sequence[sequence.length - 1] !== label) sequence.push(label);
+  }
+  const motion = cameraFromMotion(shifts);
+  const audio = audioScores ? audioTagsFromScores(audioScores) : [];
+  const matched = matchPeople(faceEmbeddings, people);
+  const tags = [];
+  const push = (item) => {
+    if (!item) return;
+    if (!tags.some((tag) => tag.label === item.label)) tags.push(item);
+  };
+  push(room);
+  const countLabels = { none: "no people", one: "one person", two: "two people", few: "a few people", crowd: "a crowd" };
+  push(peopleCount ? { ...peopleCount, label: countLabels[peopleCount.label] || peopleCount.label } : null);
+  for (const id of matched.ids) {
+    const person = matched.people.find((item) => item.id === id);
+    push({ label: person?.name || id, layer: "subject", facet: "people", score: 1, confidence: "low" });
+  }
+  for (const list of [furniture, clothing, actions, objects, lighting, mood, audio]) list.forEach(push);
+  push(time);
+  if (framing) push({ ...framing, layer: "scene" });
+  for (const label of motion.labels) {
+    push({ label, layer: "scene", facet: "camera", score: 1, confidence: motion.confidence });
+  }
+  push(posed ? { ...posed, label: posed.label === "posed" ? "posed" : "candid" } : null);
+  const facets = {
+    room: room?.confidence === "high" ? room.label : null,
+    furniture: highLabels(furniture),
+    objects: highLabels(objects),
+    clothing: highLabels(clothing),
+    actions: highLabels(actions),
+    sequence: sequence.slice(0, 8),
+    peopleCount: peopleCount?.confidence === "high" ? peopleCount.label : null,
+    peopleIds: matched.ids,
+    audio: highLabels(audio),
+    camera: [...(framing?.confidence === "high" ? [framing.label] : []), ...(motion.confidence === "high" ? motion.labels : [])],
+    time: time?.confidence === "high" ? time.label : null,
+    lighting: highLabels(lighting),
+    mood: highLabels(mood),
+    posed: posed?.label || null,
+  };
+  return {
+    tagger: TAGGER_ID,
+    tags,
+    embedding: Array.from(meanEmbedding || []).map(round3),
+    facets,
+    people: matched.people,
+  };
+}
+
+function setScore(a, b) {
+  if (!a?.length || !b?.length) return 0;
+  return jaccard(a, b);
+}
+
+function oneScore(a, b) {
+  if (!a || !b) return 0;
+  return a === b ? 1 : 0;
+}
+
+export function facetSimilarity(left, right) {
+  const a = left?.facets || {};
+  const b = right?.facets || {};
+  const scene = Math.max(0, cosine(left?.embedding, right?.embedding));
+  const parts = {
+    scene,
+    room: oneScore(a.room, b.room),
+    furniture: setScore(a.furniture, b.furniture),
+    objects: setScore(a.objects, b.objects),
+    clothing: setScore(a.clothing, b.clothing),
+    actions: setScore(a.actions, b.actions),
+    sequence: sequenceSimilarity(a.sequence, b.sequence),
+    people: setScore(a.peopleIds, b.peopleIds),
+    audio: setScore(a.audio, b.audio),
+    camera: setScore(a.camera, b.camera),
+    time: oneScore(a.time, b.time),
+    lighting: setScore(a.lighting, b.lighting),
+    mood: setScore(a.mood, b.mood),
+    posed: a.posed && b.posed && a.posed === b.posed ? 1 : 0,
+  };
+  let total = 0;
+  for (const [key, weight] of Object.entries(FACET_WEIGHTS)) total += weight * (parts[key] || 0);
+  return { score: total, parts };
+}
+
+export function groupSimilar(items, threshold = GROUP_THRESHOLD) {
   const groups = [];
   const used = new Set();
   items.forEach((item, index) => {
-    if (used.has(index) || !item.embedding) return;
+    if (used.has(index) || !item?.facets || !item?.embedding) return;
     const group = [item];
     used.add(index);
     items.forEach((other, otherIndex) => {
-      if (used.has(otherIndex) || !other.embedding) return;
-      if (cosine(item.embedding, other.embedding) >= threshold) {
+      if (used.has(otherIndex) || !other?.facets || !other?.embedding) return;
+      if (facetSimilarity(item, other).score >= threshold) {
         group.push(other);
         used.add(otherIndex);
       }
@@ -206,6 +330,15 @@ export function groupSimilar(items, threshold = 0.82) {
     if (group.length > 1) groups.push(group);
   });
   return groups;
+}
+
+export function editTags(tags, { add, remove } = {}) {
+  const next = (tags || []).map((tag) => ({ ...tag }));
+  if (remove) return next.filter((tag) => tag.label !== remove);
+  if (add?.label && !next.some((tag) => tag.label === add.label)) {
+    next.push({ label: String(add.label).slice(0, 48), layer: add.layer || "custom", confidence: "high", score: 1 });
+  }
+  return next;
 }
 
 export function matchesTags(item, query) {
@@ -216,4 +349,21 @@ export function matchesTags(item, query) {
   if (!wanted.length) return true;
   const labels = (item.tags || []).map((tag) => tag.label.toLowerCase());
   return wanted.every((word) => labels.some((label) => label.includes(word)));
+}
+
+export function meanEmbedding(vectors) {
+  if (!vectors?.length) return [];
+  const length = vectors[0].length;
+  const acc = new Array(length).fill(0);
+  for (const vector of vectors) {
+    for (let i = 0; i < length; i++) acc[i] += vector[i];
+  }
+  const scale = vectors.length;
+  let norm = 0;
+  for (let i = 0; i < length; i++) {
+    acc[i] /= scale;
+    norm += acc[i] * acc[i];
+  }
+  norm = Math.sqrt(norm) || 1;
+  return acc.map((value) => value / norm);
 }

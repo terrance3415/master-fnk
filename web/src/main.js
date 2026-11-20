@@ -8,7 +8,8 @@ import { encryptBytes as nencEncrypt } from "./nenc.mjs";
 import { renderFilm, sampleCorner } from "./render.mjs";
 import { kvDel, kvGet, kvSet, wipeDb } from "./store.mjs";
 import { cuesFromScript, toSrt, toVtt } from "./subs.mjs";
-import { editTags, embeddingFromFrames, groupSimilar, matchesTags, tagsFromFrames } from "./tags.mjs";
+import { describeFrames } from "./tagger.mjs";
+import { TAGGER_ID, editTags, groupSimilar, matchesTags } from "./tags.mjs";
 import {
   MIN_PASSWORD,
   PRODUCTION_SCRYPT,
@@ -31,6 +32,8 @@ const state = {
   vaultKey: null,
   slotId: null,
   tagQuery: "",
+  people: [],
+  tagging: null,
   pending: null,
   quiz: [],
   library: [],
@@ -172,6 +175,9 @@ const screens = {
       <label>Find by tag<input id="tag-query" type="text" value="${esc(state.tagQuery || "")}" placeholder="beach night"></label>
       <button type="button" class="btn" data-action="apply-tag-filter">Filter</button>
       <button type="button" class="btn ghost" data-action="group-similar">Group similar videos</button>
+      <button type="button" class="btn" data-action="tag-library">${state.tagging ? "Tagging…" : "Tag videos on this phone"}</button>
+      <p class="note">Tagging uses a vision model stored with the app. It stays on this phone. You can leave and come back; finished videos are skipped.</p>
+      ${(state.people || []).map((person) => `<label>${esc(person.name)}<input data-person="${esc(person.id)}" type="text" value="${esc(person.name)}" maxlength="40"></label>`).join("")}
       <div class="stack">${cards}</div>
       <button type="button" class="btn primary" data-action="new-film">Make a film</button>
       <p class="footer">Saved films stay encrypted on this phone. Closing the app locks it.</p>`;
@@ -268,7 +274,7 @@ const screens = {
 };
 
 function clipCard(clip, index, draft) {
-  const tags = (clip.tags || []).map((tag) => `<button type="button" class="chip" data-action="drop-tag" data-index="${index}" data-tag="${esc(tag.label)}">${esc(tag.label)}</button>`).join(" ");
+  const tags = (clip.tags || []).map((tag) => `<button type="button" class="chip" data-action="drop-tag" data-index="${index}" data-tag="${esc(tag.label)}">${esc(tag.label)}${tag.confidence === "low" ? "?" : ""}</button>`).join(" ");
   const chapters = (clip.chapters || []).map((chapter, chapterIndex) => `<button type="button" class="chip" data-action="rename-chapter" data-index="${index}" data-chapter="${chapterIndex}">${esc(chapter.title)} ${Number(chapter.time).toFixed(1)}s</button>`).join(" ");
   const videoBits = clip.kind !== "video" ? "" : `
     <div class="row">
@@ -376,6 +382,8 @@ function serializable(project) {
       cutOut: clip.cutOut ?? null,
       tags: clip.tags || [],
       embedding: clip.embedding || null,
+      facets: clip.facets || null,
+      tagger: clip.tagger || "",
       chapters: clip.chapters || [],
     })),
     music: project.music
@@ -391,7 +399,7 @@ function libraryKey() {
 }
 
 async function persist() {
-  const payload = new TextEncoder().encode(JSON.stringify({ projects: state.library.map(serializable) }));
+  const payload = new TextEncoder().encode(JSON.stringify({ projects: state.library.map(serializable), people: state.people || [] }));
   const enc = await encryptBytes(state.vaultKey, payload);
   await kvSet(libraryKey(), { iv: enc.iv, ct: enc.ct });
 }
@@ -822,6 +830,38 @@ const actions = {
     state.tagQuery = document.getElementById("tag-query")?.value || "";
     paint();
   },
+  async "tag-library"() {
+    if (state.tagging) return;
+    const queue = [];
+    for (const project of state.library) {
+      for (const clip of project.clips || []) {
+        if (clip.kind === "video" && clip.tagger !== TAGGER_ID) queue.push({ project, clip });
+      }
+    }
+    if (!queue.length) {
+      state.error = "Every saved video already has tags from this model.";
+      paint();
+      return;
+    }
+    state.tagging = { done: 0, total: queue.length };
+    state.error = "";
+    paint();
+    for (const item of queue) {
+      try {
+        await hydrate(item.project);
+        const file = state.blobs.get(item.clip.fileId);
+        if (file) await applyTags(item.clip, file);
+      } catch (err) {
+        state.error = friendly(err);
+      }
+      state.tagging.done += 1;
+      await persist();
+      const node = document.querySelector("[data-action=tag-library]");
+      if (node) node.textContent = `Tagging ${state.tagging.done} of ${state.tagging.total}`;
+    }
+    state.tagging = null;
+    paint();
+  },
   async "group-similar"() {
     const items = [];
     for (const project of state.library) {
@@ -831,7 +871,7 @@ const actions = {
     }
     const groups = groupSimilar(items, 0.9);
     if (!groups.length) {
-      state.error = "No similar videos yet. Add a few clips first.";
+      state.error = "No group yet. Videos only group when several details match, not just the room or the colors. Tag the library first.";
       paint();
       return;
     }
@@ -1060,6 +1100,10 @@ app.addEventListener("input", (event) => {
   }
   if (!state.draft) return;
   if (input.id === "film-name") state.draft.name = input.value;
+  if (input.dataset?.person && state.people) {
+    const person = state.people.find((item) => item.id === input.dataset.person);
+    if (person) person.name = input.value.slice(0, 40);
+  }
   if (input.id === "caption-script") {
     const plan = buildTimeline(state.draft.clips, state.draft);
     state.draft.cues = cuesFromScript(input.value, plan.duration || 1);
@@ -1090,6 +1134,9 @@ app.addEventListener("play", (event) => {
 }, true);
 
 app.addEventListener("change", async (event) => {
+  if (event.target?.dataset?.person) {
+    await persist();
+  }
   if (event.target?.dataset?.trim && state.draft) {
     const name = event.target.dataset.trim;
     if (name !== "insertIndex" && name !== "insertAt") {
@@ -1135,11 +1182,11 @@ app.addEventListener("change", async (event) => {
           tags: [],
           chapters: [],
         };
-        if (kind === "video" && file.size < 80 * 1024 * 1024) {
-          const frames = await sampleFrames(file, 3);
-          if (frames.length) {
-            clip.tags = tagsFromFrames(frames);
-            clip.embedding = embeddingFromFrames(frames);
+        if (kind === "video" && file.size < 400 * 1024 * 1024) {
+          try {
+            await applyTags(clip, file);
+          } catch {
+            clip.tags = [];
           }
         }
         state.draft.clips.push(clip);
@@ -1221,6 +1268,7 @@ async function loadLibrary() {
   const bytes = await decryptBytes(state.vaultKey, saved);
   const parsed = JSON.parse(new TextDecoder().decode(bytes));
   state.library = parsed.projects || [];
+  state.people = parsed.people || [];
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -1296,12 +1344,29 @@ function sampleFrames(file, count) {
   return withVideo(file, async (video) => {
     const frames = [];
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const long = Math.max(video.videoWidth || 320, video.videoHeight || 180);
+    const scale = long > 320 ? 320 / long : 1;
+    const width = Math.max(64, Math.round((video.videoWidth || 320) * scale));
+    const height = Math.max(64, Math.round((video.videoHeight || 180) * scale));
     for (let i = 0; i < count; i++) {
       await seekVideo(video, duration ? (duration * (i + 1)) / (count + 1) : 0);
-      frames.push(frameFromVideo(video, 64, 36));
+      frames.push(frameFromVideo(video, width, height));
     }
     return frames;
   }).then((frames) => frames || []);
+}
+
+async function applyTags(clip, file) {
+  const frames = await sampleFrames(file, 4);
+  if (!frames.length) return;
+  let audio = null;
+  if (file.size < 80 * 1024 * 1024) audio = await decodeMusicPeaks(file);
+  const described = await describeFrames({ frames, audio, people: state.people });
+  clip.tags = described.tags;
+  clip.embedding = described.embedding;
+  clip.facets = described.facets;
+  clip.tagger = described.tagger;
+  state.people = described.people;
 }
 
 async function sampleClipFrame(file, time) {

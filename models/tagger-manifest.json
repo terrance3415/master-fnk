@@ -1,0 +1,18 @@
+{
+  "vision": {
+    "file": "mobileclip-s0-vision.onnx",
+    "bytes": 45543630,
+    "sha256": "17d3c037b1d488c10c50e09f6009ea5a198caef4e0e8f4ea5617b7cb2d067ac0"
+  },
+  "tags": {
+    "file": "mobileclip-tags.json",
+    "bytes": 431754,
+    "sha256": "5f72df688a3e3ea1ea0ef09e1cd9c1dd2caedd63f942cec1cd6181f651804c7f"
+  },
+  "yamnet": {
+    "file": "yamnet.onnx",
+    "bytes": 16124200,
+    "sha256": "04e27fca08e7a3aea2630d1a63a51e6b437c803e0ff6e26399f80870ac251dda"
+  },
+  "note": "Text embeddings were computed with the matching MobileCLIP text tower and shipped instead of the text model. Frames are not uploaded."
+}
