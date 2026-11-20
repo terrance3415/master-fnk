@@ -43,9 +43,10 @@ Windows:
 
 The default encoder is libsvtav1. The thread cap is the SVT option lp, passed as
   -svtav1-params lp=N
-Preflight runs a two-frame encode and reads "Number of logical cores available".
-An unknown SVT key is not a successful cap: this build of FFmpeg can ignore a bad
-key and still exit 0, so the log line is the check that actually matters.
+Preflight runs a two-frame encode and reads "Number of logical cores available"
+(SVT-AV1 1.x) or "Level of Parallelism" (SVT-AV1 2.x). An unknown SVT key is not
+a successful cap: this build of FFmpeg can ignore a bad key and still exit 0, so
+the log line is the check that actually matters.
 """.strip()
 
 
@@ -104,7 +105,8 @@ def assert_encoder_available(ffmpeg: str, encoder: str) -> None:
 
 
 def svt_logical_cores(log: str) -> int | None:
-    match = re.search(r"Number of logical cores available:\s*(\d+)", log)
+    # SVT-AV1 2.x renamed the line to "Level of Parallelism".
+    match = re.search(r"(?:Number of logical cores available|Level of Parallelism):\s*(\d+)", log)
     if not match:
         return None
     return int(match.group(1))

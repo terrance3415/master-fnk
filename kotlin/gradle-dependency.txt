@@ -1,0 +1,7 @@
+// Add this to the Android app module build.gradle.kts (or the Groovy equivalent).
+// Bouncy Castle is used only for scrypt and optional argon2id. AES-GCM uses
+// the platform javax.crypto provider (AES/GCM/NoPadding, 128-bit tag).
+
+dependencies {
+    implementation("org.bouncycastle:bcprov-jdk18on:1.80")
+}

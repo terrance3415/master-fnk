@@ -66,7 +66,14 @@ test("looks and a multi-clip timeline with slow motion and trimming", () => {
     resolution: "720",
     enhance: true,
   });
-  assert.equal(long.trimmed, true);
-  assert.ok(long.duration <= 8.01);
-  assert.ok(long.message.includes("opening"));
+  assert.ok(long.error);
+  assert.equal(long.segments.length, 0);
+  const kept = buildTimeline([{ ...video, duration: 30, id: "long", trimIn: 1, trimOut: 5 }], {
+    slowMo: 1,
+    resolution: "720",
+    enhance: true,
+  });
+  assert.equal(kept.error, undefined);
+  assert.ok(Math.abs(kept.duration - 4) < 0.05);
+  assert.ok(!String(kept.message).includes("opening"));
 });

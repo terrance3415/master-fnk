@@ -6,7 +6,11 @@
  */
 import { encodeCanvasFilm } from "./encode.mjs";
 import { FPS, GRADES, layersAt, letterboxRect, outputSize, workSize } from "./filmmath.mjs";
+import { mixFilmAudio } from "./audio.mjs";
+import { applyGradeAndCorrection } from "./color.mjs";
+import { interpolateRgba } from "./interp.mjs";
 import { denoiseRGBA, estimateShift, grayscale, isSceneCut, sharpenRGBA } from "./process.mjs";
+import { cueAt } from "./subs.mjs";
 import { neuralInputSize, openEnhancer, upscaleRgb } from "./upscale.mjs";
 
 const NEURAL_LONG = 320;
@@ -95,18 +99,20 @@ function containDraw(ctx, source, sw, sh, dw, dh, zoom) {
   ctx.drawImage(source, (dw - w) / 2, (dh - h) / 2, w, h);
 }
 
-function paintSource(ctx, source, sw, sh, dw, dh, gradeName, zoom, panX) {
+function paintSource(ctx, source, sw, sh, dw, dh, gradeName, zoom, panX, frameMode) {
   const grade = GRADES[gradeName] || GRADES.movie;
+  const mode = frameMode || "fit";
   const portrait = sh / sw > 1.05;
   ctx.clearRect(0, 0, dw, dh);
-  if (portrait) {
+  const fit = mode === "fit" || (mode !== "fill" && mode !== "crop" && portrait);
+  if (fit) {
     ctx.filter = `blur(16px) brightness(0.72) ${grade.filter}`;
     coverDraw(ctx, source, sw, sh, dw, dh, 1.15, 0);
     ctx.filter = grade.filter;
     containDraw(ctx, source, sw, sh, dw, dh, zoom);
   } else {
     ctx.filter = grade.filter;
-    coverDraw(ctx, source, sw, sh, dw, dh, zoom, panX);
+    coverDraw(ctx, source, sw, sh, dw, dh, mode === "crop" ? zoom * 1.12 : zoom, panX);
   }
   ctx.filter = "none";
 }
@@ -222,7 +228,22 @@ async function drawLayer(work, media, project, layer, tools) {
   const ctx = work.getContext("2d", { willReadFrequently: true });
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  paintSource(ctx, source, sw, sh, work.width, work.height, project.grade, zoom, pan);
+  paintSource(ctx, source, sw, sh, work.width, work.height, project.grade, zoom, pan, project.frame);
+  const colorOn =
+    project.cinematic || project.exposure || project.temperature || project.tint || project.contrast;
+  if (colorOn) {
+    const image = ctx.getImageData(0, 0, work.width, work.height);
+    image.data.set(
+      applyGradeAndCorrection(image.data, {
+        cinematic: project.cinematic,
+        exposure: project.exposure,
+        temperature: project.temperature,
+        tint: project.tint,
+        contrast: project.contrast,
+      }),
+    );
+    ctx.putImageData(image, 0, 0);
+  }
   if (!tools.enhancing && project.denoise > 0) {
     const image = ctx.getImageData(0, 0, work.width, work.height);
     image.data.set(denoiseRGBA(image.data, work.width, work.height, project.denoise));
@@ -242,6 +263,7 @@ async function drawLayer(work, media, project, layer, tools) {
     image.data.set(sharpenRGBA(image.data, work.width, work.height, project.sharpen));
     ctx.putImageData(image, 0, 0);
   }
+  if (project.smooth && media.video && !tools.enhancing) await smoothWork(work, media, layer);
 }
 
 function grainTile() {
@@ -366,6 +388,18 @@ async function compose(output, work, layers, mediaById, project, tools, frameInd
     if (bottom < output.height) ctx.fillRect(0, bottom, output.width, output.height - bottom);
   }
   drawTitle(ctx, project, box, time);
+  const cue = cueAt(project.cues, time);
+  if (cue) {
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(box.x + box.width * 0.08, box.y + box.height * 0.78, box.width * 0.84, box.height * 0.12);
+    ctx.fillStyle = "#f6f0e4";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `600 ${Math.max(18, Math.round(box.width * 0.035))}px sans-serif`;
+    ctx.fillText(cue.text, box.x + box.width / 2, box.y + box.height * 0.84, box.width * 0.8);
+    ctx.restore();
+  }
 }
 
 async function ensureEnhancer(project, media, tools) {
@@ -381,8 +415,8 @@ async function ensureEnhancer(project, media, tools) {
 
 export async function renderFilm(project, timeline, options = {}) {
   const started = performance.now();
-  const size = outputSize(project.resolution);
-  const geometry = workSize(project.resolution, project.letterbox);
+  const size = outputSize(project.resolution, project.aspect || "16:9");
+  const geometry = workSize(project.resolution, project.letterbox, project.aspect || "16:9");
   const output = document.createElement("canvas");
   output.width = size.width;
   output.height = size.height;
@@ -426,16 +460,53 @@ export async function renderFilm(project, timeline, options = {}) {
   }
   const frameCount = Math.max(1, Math.min(timeline.frameCount, options.maxFrames || timeline.frameCount));
   let audioBuffer = null;
-  if (project.music && project.music.blob) {
+  const clipAudio = [];
+  for (const clip of project.clips) {
+    if (clip.kind !== "video" || !clip.blob || clip.blob.size > 48 * 1024 * 1024) {
+      clipAudio.push(null);
+      continue;
+    }
+    clipAudio.push(await decodePcm(clip.blob));
+  }
+  let musicPcm = null;
+  if (project.music?.blob && project.music.blob.size <= 48 * 1024 * 1024) {
+    musicPcm = await decodePcm(project.music.blob);
+    if (!musicPcm) notes.push("The music file could not be read. The film has no song.");
+  }
+  const wantsAudio = musicPcm || clipAudio.some(Boolean);
+  if (wantsAudio && typeof AudioBuffer !== "undefined") {
     try {
-      const ctx = new AudioContext();
-      const copy = (await project.music.blob.arrayBuffer()).slice(0);
-      audioBuffer = await ctx.decodeAudioData(copy);
-      await ctx.close();
+      const mixed = mixFilmAudio({
+        duration: frameCount / FPS,
+        sampleRate: 48000,
+        segments: timeline.segments,
+        clipAudio,
+        music: musicPcm,
+        audioMode: project.audioMode || "keep",
+        cleanup: project.cleanup || 0,
+        soften: project.audioMode === "soften" ? 0.85 : 0,
+        widen: project.widen || 0,
+        transition: timeline.transition || 0,
+      });
+      audioBuffer = new AudioBuffer({
+        length: mixed.left.length,
+        numberOfChannels: 2,
+        sampleRate: mixed.sampleRate,
+      });
+      audioBuffer.copyToChannel(mixed.left, 0);
+      audioBuffer.copyToChannel(mixed.right, 1);
+      if (project.audioMode === "mute") notes.push("Clip audio is muted. A song still plays if you added one.");
+      else if (project.audioMode === "duck" && musicPcm) notes.push("Clip audio is ducked under the song.");
+      else if (project.audioMode === "soften") notes.push("Broadcast-style sound is softened. A loud TV voice can still be heard.");
+      else if (clipAudio.some(Boolean)) notes.push("Original clip audio is kept.");
+      if ((project.cleanup || 0) > 0) notes.push("Mic cleanup is on. It lowers hiss, hum, and rumble. It does not remove a voice.");
+      if ((project.widen || 0) > 0) notes.push("Stereo width is on. A mono phone mix still sums back to the same middle.");
     } catch {
-      notes.push("The music file could not be read. The film has no soundtrack.");
+      notes.push("Audio could not be mixed. The film may be silent.");
+      audioBuffer = null;
     }
   }
+  if (project.smooth) notes.push("Smooth motion is on. It blends nearby frames on a small picture, so fast motion can ghost.");
   try {
     const encoded = await encodeCanvasFilm({
       canvas: output,
@@ -485,9 +556,43 @@ export async function renderFilm(project, timeline, options = {}) {
   }
 }
 
+async function decodePcm(blob) {
+  if (typeof AudioContext === "undefined") return null;
+  try {
+    const ctx = new AudioContext();
+    const copy = (await blob.arrayBuffer()).slice(0);
+    const audio = await ctx.decodeAudioData(copy);
+    await ctx.close();
+    const channels = [];
+    for (let i = 0; i < audio.numberOfChannels; i++) channels.push(audio.getChannelData(i).slice());
+    return { sampleRate: audio.sampleRate, channels };
+  } catch {
+    return null;
+  }
+}
+
+async function smoothWork(work, media, layer) {
+  const proxy = document.createElement("canvas");
+  proxy.width = 160;
+  proxy.height = Math.max(90, Math.round((work.height / work.width) * 160));
+  const ctx = proxy.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(work, 0, 0, proxy.width, proxy.height);
+  const first = ctx.getImageData(0, 0, proxy.width, proxy.height).data;
+  const step = layer.seg.outDuration > 0 ? layer.seg.sourceUsed / layer.seg.outDuration / 12 : 1 / 12;
+  await seek(media.video, layer.sourceTime + step);
+  ctx.drawImage(media.video, 0, 0, proxy.width, proxy.height);
+  const second = ctx.getImageData(0, 0, proxy.width, proxy.height).data;
+  const blended = interpolateRgba(first, second, proxy.width, proxy.height, 0.5, { block: 8, radius: 3 });
+  const image = new ImageData(blended, proxy.width, proxy.height);
+  ctx.putImageData(image, 0, 0);
+  const full = work.getContext("2d");
+  full.drawImage(proxy, 0, 0, work.width, work.height);
+  await seek(media.video, layer.sourceTime);
+}
+
 export async function sampleCorner(project, timeline) {
-  const size = outputSize(project.resolution);
-  const geometry = workSize(project.resolution, project.letterbox);
+  const size = outputSize(project.resolution, project.aspect || "16:9");
+  const geometry = workSize(project.resolution, project.letterbox, project.aspect || "16:9");
   const output = document.createElement("canvas");
   output.width = size.width;
   output.height = size.height;

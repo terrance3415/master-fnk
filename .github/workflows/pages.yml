@@ -45,3 +45,6 @@ jobs:
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages-${{ github.run_attempt }}
+      # If this step fails with "Ensure GitHub Pages has been enabled", the
+      # repository Pages source is still "Deploy from a branch" (Jekyll).
+      # On a phone: Settings, Pages, Build and deployment, Source, GitHub Actions.

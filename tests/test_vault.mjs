@@ -124,3 +124,23 @@ test("recovery guesses escalate on their own and a bad file does not open", asyn
 test("short passwords are refused", async () => {
   await assert.rejects(() => createVault("short", generatePhrase(), FAST), (err) => err.code === "weak");
 });
+
+test("a second password opens a different library and a wrong password still locks out", async () => {
+  const phrase = generatePhrase();
+  const created = await createVault("correct-horse", phrase, FAST, "ordinary-films");
+  const stored = JSON.stringify(created.record);
+  assert.equal(stored.includes("decoy"), false);
+  assert.equal(stored.includes("correct-horse"), false);
+  assert.equal(stored.includes("ordinary-films"), false);
+  const real = await unlock(created.record, "correct-horse", 0);
+  const other = await unlock(created.record, "ordinary-films", 0);
+  assert.notEqual(real.slotId, other.slotId);
+  const sealed = await encryptBytes(real.vaultKey, new TextEncoder().encode("secret film"));
+  await assert.rejects(() => decryptBytes(other.vaultKey, sealed));
+  await assert.rejects(() => unlock(created.record, "wrong-password", 0), (err) => err.code === "auth" && err.waitSeconds === PASSWORD_LOCKOUT_SECONDS[0]);
+  const recovered = await recover(created.record, phrase.join(" "), "brand-new-password", 0);
+  const again = await unlock(recovered.record, "brand-new-password", 0);
+  assert.equal(again.slotId, real.slotId);
+  const stillOther = await unlock(recovered.record, "ordinary-films", 0);
+  assert.equal(stillOther.slotId, other.slotId);
+});

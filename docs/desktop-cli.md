@@ -119,7 +119,7 @@ Windows:
 ffmpeg -hide_banner -encoders | findstr libsvtav1
 ```
 
-SVT-AV1 1.7 refuses an output width or height below 64. A 32x32 source with `--scale 2` is 64x64, which is the smallest output this tool will encode with libsvtav1. The list must contain `libsvtav1`. `libaom-av1` alone is only the optional slower encoder. An RTX 3060 has no hardware AV1 encoder. NVENC AV1, QSV, and VAAPI are not used. The encode is software SVT-AV1 on the CPU. Do not infer the CPU from the GPU. `--threads N` sets SVT `lp=N` (0 means `min(8, CPU count)`). Preflight encodes two black frames and requires the log line `Number of logical cores available` to match `min(N, CPU count)`. FFmpeg 6.1 can print an error for an unknown SVT key and still exit 0, so the log line is the check.
+SVT-AV1 1.7 refuses an output width or height below 64. A 32x32 source with `--scale 2` is 64x64, which is the smallest output this tool will encode with libsvtav1. The list must contain `libsvtav1`. `libaom-av1` alone is only the optional slower encoder. An RTX 3060 has no hardware AV1 encoder. NVENC AV1, QSV, and VAAPI are not used. The encode is software SVT-AV1 on the CPU. Do not infer the CPU from the GPU. `--threads N` sets SVT `lp=N` (0 means `min(8, CPU count)`). Preflight encodes two black frames and requires the log line `Number of logical cores available` (SVT-AV1 1.x) or `Level of Parallelism` (SVT-AV1 2.x) to match `min(N, CPU count)`. FFmpeg 6.1 can print an error for an unknown SVT key and still exit 0, so the log line is the check.
 
 Ubuntu 24.04's `ffmpeg` package is built with `--enable-libsvtav1` (SVT-AV1 1.7 in the 24.04 package). If your build does not have it, link SVT yourself. A typical Linux build:
 

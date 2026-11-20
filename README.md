@@ -8,7 +8,7 @@ The app is a website you add to your home screen. It is not an App Store downloa
 
 **https://terrance3415.github.io/master-fnk/**
 
-That address is not live until the two taps in the next section. GitHub will show the same address on the Actions run when publishing finishes.
+The address is already public, but today it shows this readme page. GitHub Pages is set to publish the repository with Jekyll. The phone app is built by the **Publish phone app** action, and that action can replace the site only after Pages source is **GitHub Actions**.
 
 ### Turn on the site from your phone
 
@@ -39,9 +39,17 @@ Use a current iPhone system (iOS 17 or newer). Older Safari cannot save the fini
 2. Tap **Install app** when it appears, or open the Chrome menu and tap **Install app** or **Add to Home screen**.
 3. Confirm. The icon is Master FNK.
 
-### Android app file (optional)
+### Android app file
 
-An APK was not built. iPhones cannot install an APK. Android can install this site directly, which is the path above. If you later want a separate `.apk` file, [PWABuilder](https://www.pwabuilder.com/) can package the live address. That needs the site to be up first, plus a signing key. It was not run here.
+A debug APK is built by the **Android debug APK** action. It opens and creates `.nenc` videos. It is not the full studio. Trimming, looks, and the vault live in the website above.
+
+1. Open this repository in Chrome on the phone. Sign in as the owner.
+2. Tap **Actions**, then **Android debug APK**.
+3. Open the latest green run. Download the **master-fnk-debug** artifact. It is a zip. Open the zip and tap the `.apk`.
+4. Android will warn that the app is from outside the Play Store. Allow install from Chrome or Files, then tap the apk again.
+5. Open **Master FNK**. **Open a locked video** asks for the password and plays it. **Lock a video** uses the lighter phone password setup and can hand the `.nenc` to the share sheet.
+
+The website’s **Share a locked copy** uses a password you choose at that moment. It is not the vault password. **Download an unprotected copy** is labeled as unprotected: anyone with that file can watch it.
 
 ## First time you open it
 
