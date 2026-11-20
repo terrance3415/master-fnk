@@ -32,6 +32,7 @@ for (const name of ["index.html", "styles.css", "manifest.webmanifest"]) {
   await cp(path.join(root, "web", name), path.join(out, name));
 }
 await cp(path.join(root, "web", "icons"), path.join(out, "icons"), { recursive: true });
+await cp(path.join(root, "web", "v17"), path.join(out, "v17"), { recursive: true });
 for (const name of [
   "realesr-general-x4v3.onnx",
   "mobileclip-s0-vision.onnx",

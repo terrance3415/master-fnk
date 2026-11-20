@@ -23,6 +23,13 @@ import {
   unlock,
 } from "./vault.mjs";
 
+const STUDIO = {
+  video: { label: "Video", color: "#C84F7A", bg: "./v17/bg_video_jean.jpg", fig: "./v17/fig_jean_landed.png" },
+  music: { label: "Music", color: "#5AC484", bg: "./v17/bg_music_rogue.jpg", fig: "./v17/fig_rogue_landed.png" },
+  captured: { label: "Captured", color: "#4E58B9", bg: "./v17/bg_captured_storm.jpg", fig: "./v17/fig_storm_landed.png" },
+  export: { label: "Export", color: "#F4EFE6", bg: "./v17/bg_export_trio.jpg", fig: "./v17/fig_trio_landed.png" },
+};
+
 const app = document.getElementById("app");
 const state = {
   screen: "working",
@@ -184,35 +191,49 @@ const screens = {
   },
   edit() {
     const draft = state.draft;
+    const mode = STUDIO[draft.studioMode] ? draft.studioMode : "video";
+    const theme = STUDIO[mode];
     const plan = buildTimeline(draft.clips, draft);
-    const clips = draft.clips.map((clip, index) => clipCard(clip, index, draft)).join("");
-    return `<header class="topbar"><button type="button" class="icon" data-action="show-library">Back</button><h2>New film</h2></header>
-      <div class="stack">
-        <label>Name on the film<input id="film-name" data-field="name" type="text" maxlength="60" value="${esc(draft.name || "")}" placeholder="Optional title"></label>
-        <section class="card">
-          <div class="row">
-            <button type="button" class="btn" data-action="pick-media">Add video or photo</button>
-            <button type="button" class="btn ghost" data-action="pick-music">${draft.music ? "Change music" : "Add music"}</button>
+    const videos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "video");
+    const photos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "image");
+    const panel = {
+      video: `<section class="card stack">
+          <button type="button" class="btn" data-action="pick-video">Add a video</button>
+          ${videos.map((item) => clipCard(item.clip, item.index, draft)).join("") || `<p class="note">No videos yet. They play in order, with a fade between them.</p>`}
+        </section>`,
+      music: `<section class="card stack">
+          <button type="button" class="btn" data-action="pick-music">${draft.music ? "Change music" : "Add music"}</button>
+          ${draft.music ? `<p class="note">Music: ${esc(draft.music.name)}</p>` : `<p class="note">No song yet. The clip’s own sound can stay.</p>`}
+          <div class="chips" aria-label="Clip sound">
+            ${[["keep", "Keep sound"], ["duck", "Duck under song"], ["soften", "Softer TV"], ["mute", "Mute clip"]].map(([id, label]) => `<button type="button" class="chip ${(draft.audioMode || "keep") === id ? "on" : ""}" data-action="pick-audio" data-audio="${id}">${label}</button>`).join("")}
           </div>
-          <input id="media-input" class="hidden" type="file" accept="video/*,image/*" multiple>
-          <input id="music-input" class="hidden" type="file" accept="audio/*">
-          ${clips || `<p class="note">Add a few clips or photos. They play in order with a soft fade between them.</p>`}
-          ${draft.music ? `<p class="note">Music: ${esc(draft.music.name)}</p>` : ""}
-        </section>
-        <div class="looks">
-          ${Object.values(PRESETS).map((preset) => `<button type="button" class="look ${draft.look === preset.id ? "on" : ""}" data-action="pick-look" data-look="${preset.id}"><i class="swatch ${preset.id}"></i><b>${esc(preset.label)}</b><span>${esc(preset.blurb)}</span></button>`).join("")}
-        </div>
-        <div class="chips">
-          ${Object.entries(RESOLUTIONS).map(([id, item]) => `<button type="button" class="chip ${draft.resolution === id ? "on" : ""}" data-action="pick-res" data-res="${id}">${esc(item.label)}</button>`).join("")}
-        </div>
-        <div class="chips" aria-label="Frame shape">
-          ${["16:9", "9:16", "1:1"].map((aspect) => `<button type="button" class="chip ${draft.aspect === aspect ? "on" : ""}" data-action="pick-aspect" data-aspect="${aspect}">${aspect}</button>`).join("")}
-        </div>
-        <div class="chips" aria-label="Framing">
-          ${[["fit", "Fit"], ["fill", "Fill"], ["crop", "Crop"]].map(([id, label]) => `<button type="button" class="chip ${draft.frame === id ? "on" : ""}" data-action="pick-frame" data-frame="${id}">${label}</button>`).join("")}
-        </div>
-        <p class="note">${esc(RESOLUTIONS[draft.resolution].hint)} Fit shows the whole picture. Fill and Crop cut the edges to fill the frame.</p>
-        <section class="card stack">
+          ${slider("cleanup", "Mic cleanup", draft.cleanup || 0)}
+          ${slider("widen", "Stereo width", draft.widen || 0)}
+          <label class="check"><input type="checkbox" data-field="beatSync" ${draft.beatSync ? "checked" : ""}> Snap cuts to the song’s beats</label>
+        </section>`,
+      captured: `<section class="card stack">
+          <button type="button" class="btn" data-action="pick-photo">Add a photo</button>
+          ${photos.map((item) => clipCard(item.clip, item.index, draft)).join("") || `<p class="note">No photos yet.</p>`}
+        </section>`,
+      export: `<section class="stack">
+          <div class="export-rows">
+            <div class="export-row video">Video · ${videos.length}</div>
+            <div class="export-row music">Music · ${draft.music ? esc(draft.music.name) : "None"}</div>
+            <div class="export-row captured">Captured · ${photos.length}</div>
+          </div>
+          <label>Name on the film<input id="film-name" data-field="name" type="text" maxlength="60" value="${esc(draft.name || "")}" placeholder="Optional title"></label>
+          <div class="looks">
+            ${Object.values(PRESETS).map((preset) => `<button type="button" class="look ${draft.look === preset.id ? "on" : ""}" data-action="pick-look" data-look="${preset.id}"><i class="swatch ${preset.id}"></i><b>${esc(preset.label)}</b><span>${esc(preset.blurb)}</span></button>`).join("")}
+          </div>
+          <div class="chips">
+            ${Object.entries(RESOLUTIONS).map(([id, item]) => `<button type="button" class="chip ${draft.resolution === id ? "on" : ""}" data-action="pick-res" data-res="${id}">${esc(item.label)}</button>`).join("")}
+          </div>
+          <div class="chips" aria-label="Frame shape">
+            ${["16:9", "9:16", "1:1"].map((aspect) => `<button type="button" class="chip ${draft.aspect === aspect ? "on" : ""}" data-action="pick-aspect" data-aspect="${aspect}">${aspect}</button>`).join("")}
+          </div>
+          <div class="chips" aria-label="Framing">
+            ${[["fit", "Fit"], ["fill", "Fill"], ["crop", "Crop"]].map(([id, label]) => `<button type="button" class="chip ${draft.frame === id ? "on" : ""}" data-action="pick-frame" data-frame="${id}">${label}</button>`).join("")}
+          </div>
           ${slider("denoise", "Denoise", draft.denoise)}
           ${slider("sharpen", "Sharpen", draft.sharpen)}
           ${slider("grain", "Film grain", draft.grain)}
@@ -226,30 +247,50 @@ const screens = {
           ${slider("contrast", "Contrast", (Number(draft.contrast) + 1) / 2)}
           ${slider("cinematic", "Teal and orange", draft.cinematic || 0)}
           <button type="button" class="btn" data-action="auto-color">Auto color</button>
-          <p class="note">Auto nudges exposure and white balance from the first clip. The movie looks still apply on top. Teal and orange deepens shadows and lifts the blacks.</p>
-          <div class="chips" aria-label="Clip sound">
-            ${[["keep", "Keep sound"], ["duck", "Duck under song"], ["soften", "Softer TV"], ["mute", "Mute clip"]].map(([id, label]) => `<button type="button" class="chip ${(draft.audioMode || "keep") === id ? "on" : ""}" data-action="pick-audio" data-audio="${id}">${label}</button>`).join("")}
-          </div>
-          ${slider("cleanup", "Mic cleanup", draft.cleanup || 0)}
-          ${slider("widen", "Stereo width", draft.widen || 0)}
           <label class="check"><input type="checkbox" data-field="smooth" ${draft.smooth ? "checked" : ""}> Smooth low frame rates (slower)</label>
-          <label class="check"><input type="checkbox" data-field="beatSync" ${draft.beatSync ? "checked" : ""}> Snap cuts to the song’s beats</label>
           <label class="check"><input type="checkbox" data-field="enhance" ${draft.enhance ? "checked" : ""}> Enhance small clips up to 720p</label>
-          <p class="note">Enhance rebuilds detail on clips under 720p. It is slow. The first time, this phone downloads about 20 MB, or about 35 MB if the graphics chip can help.</p>
-        </section>
-        <p class="note plan">${plan.error ? esc(plan.error) : `${plan.duration.toFixed(1)}s · ${plan.frameCount} frames · ${esc(RESOLUTIONS[draft.resolution].label)}${plan.message ? ` · ${esc(plan.message)}` : ""}`}</p>
-        ${state.error ? `<p class="error" role="alert">${esc(state.error)}</p>` : ""}
-        <label>Captions<textarea id="caption-script" rows="3">${esc((draft.cues || []).map((cue) => cue.text).join(" "))}</textarea></label>
-        <p class="note">Words are spaced across the film and burned in. Speech is not transcribed on this phone. Export them as subtitles after the film is made.</p>
-        <button type="button" class="btn primary" data-action="create-film" ${plan.error || !draft.clips.length ? "disabled" : ""}>Create video</button>
-      </div>`;
+          <label>Captions<textarea id="caption-script" rows="3">${esc((draft.cues || []).map((cue) => cue.text).join(" "))}</textarea></label>
+          <p class="note plan">${plan.error ? esc(plan.error) : `${plan.duration.toFixed(1)}s · ${plan.frameCount} frames · ${esc(RESOLUTIONS[draft.resolution].label)}${plan.message ? ` · ${esc(plan.message)}` : ""}`}</p>
+          <button type="button" class="btn primary" data-action="create-film" ${plan.error || !draft.clips.length ? "disabled" : ""}>Create video</button>
+        </section>`,
+    }[mode];
+    return `<div class="studio mode-${mode}" style="--mode:${theme.color}">
+      <header class="studio-bar">
+        <button type="button" class="icon" data-action="show-library">Back</button>
+        <strong>master-fnk</strong>
+        <span class="edit-mark">Edit</span>
+        <button type="button" class="export-pill" data-action="pick-studio" data-studio="export">Export</button>
+      </header>
+      <div class="stage">
+        <img class="stage-bg" src="${theme.bg}" alt="">
+        <img class="stage-fig" src="${theme.fig}" alt="">
+      </div>
+      <nav class="mode-nav" aria-label="Editor mode">
+        ${Object.entries(STUDIO).map(([id, item]) => `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""}" data-action="pick-studio" data-studio="${id}"><img src="${item.fig}" alt=""><i></i><span>${item.label}</span></button>`).join("")}
+      </nav>
+      <input id="media-input" class="hidden" type="file" accept="video/*,image/*" multiple>
+      <input id="music-input" class="hidden" type="file" accept="audio/*">
+      ${state.error ? `<p class="error" role="alert">${esc(state.error)}</p>` : ""}
+      ${panel}
+    </div>`;
   },
   render() {
-    return `<h1>Creating</h1>
-      <p data-progress-label class="lede">${esc(state.working || "Starting…")}</p>
-      <div class="progress" aria-hidden="true"><span data-progress-bar></span></div>
-      <p class="note">Keep this screen open. A longer film, 1080p, or Enhance takes longer. 4K is the slowest.</p>
-      <button type="button" class="btn ghost" data-action="cancel-render">Stop</button>`;
+    return `<div class="studio mode-export">
+      <header class="studio-bar">
+        <button type="button" class="icon" data-action="cancel-render">Stop</button>
+        <strong>master-fnk</strong>
+        <span class="edit-mark">Edit</span>
+      </header>
+      <div class="stage">
+        <img class="stage-bg" src="./v17/bg_export_trio.jpg" alt="">
+        <img class="stage-fig" src="./v17/fig_trio_landed.png" alt="">
+        <div class="export-float">
+          <p data-progress-label>${esc(state.working || "Starting…")}</p>
+          <div class="progress" aria-hidden="true"><span data-progress-bar></span></div>
+        </div>
+      </div>
+      <p class="note">Keep this screen open. The trio stays still while this version builds the film.</p>
+    </div>`;
   },
   done() {
     const done = state.done || {};
@@ -262,7 +303,7 @@ const screens = {
       <p><b>${esc(done.width)}×${esc(done.height)}</b> · ${Number(done.duration || 0).toFixed(1)}s · H.264</p>
       ${(done.notes || []).map((note) => `<p class="note">${esc(note)}</p>`).join("")}
       <div class="stack">
-        <button type="button" class="btn primary" data-action="share-locked">Share a locked copy</button>
+        <button type="button" class="btn share" data-action="share-locked">Share a locked copy</button>
         <p class="note">Asks for a share password. The file is a .nenc. It is not the vault password. The other person opens it in the Android app or with the Python tool.</p>
         <button type="button" class="btn ghost" data-action="download">Download an unprotected copy</button>
         <p class="note">Unprotected. Anyone with this file can watch it.</p>
@@ -365,6 +406,7 @@ function serializable(project) {
     aspect: project.aspect || "16:9",
     frame: project.frame || "fit",
     beatSync: Boolean(project.beatSync),
+    studioMode: project.studioMode || "video",
     beats: project.beats || [],
     cues: project.cues || [],
     clips: project.clips.map((clip) => ({
@@ -437,6 +479,7 @@ function blankDraft() {
     frame: "fit",
     beatSync: false,
     beats: [],
+    studioMode: "video",
     cues: [],
     clips: [],
     music: null,
@@ -590,6 +633,26 @@ const actions = {
   },
   "pick-media"() {
     document.getElementById("media-input")?.click();
+  },
+  "pick-video"() {
+    const input = document.getElementById("media-input");
+    if (!input) return;
+    input.accept = "video/*";
+    input.click();
+  },
+  "pick-photo"() {
+    const input = document.getElementById("media-input");
+    if (!input) return;
+    input.accept = "image/*";
+    input.click();
+  },
+  "pick-studio"(button) {
+    if (!state.draft) return;
+    const next = button.dataset.studio;
+    if (!STUDIO[next]) return;
+    state.draft.studioMode = next;
+    paint();
+    saveDraft();
   },
   "pick-music"() {
     document.getElementById("music-input")?.click();
