@@ -1,0 +1,45 @@
+name: Materialize v17 handoff binaries
+
+on:
+  push:
+    branches: [design/v17-copilot-handoff]
+    paths:
+      - "design/v17-copilot-handoff/payloads/**"
+      - "design/v17-copilot-handoff/decode_assets.py"
+      - ".github/workflows/materialize-v17-handoff.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  decode:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/v17-copilot-handoff
+      - name: Require complete payload set
+        run: |
+          set -e
+          needed="icons.manifest assets.manifest mockups.manifest giles_home_jean.manifest giles_home_rogue.manifest giles_home_storm.manifest giles_splash_vault.manifest"
+          for f in $needed; do
+            test -f "design/v17-copilot-handoff/payloads/$f" || { echo "Missing $f — waiting for remaining payloads"; exit 0; }
+          done
+      - name: Decode base64 payloads to PNG/JPG
+        run: python3 design/v17-copilot-handoff/decode_assets.py
+      - name: Commit materialized binaries
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add design/v17-copilot-handoff/assets \
+                  design/v17-copilot-handoff/mockups \
+                  design/v17-copilot-handoff/giles_screens \
+                  design/v17-copilot-handoff/icons
+          if git diff --cached --quiet; then
+            echo "No binary changes to commit"
+            exit 0
+          fi
+          git commit -m "Materialize approved v17 handoff PNG/JPG assets"
+          git push origin design/v17-copilot-handoff
