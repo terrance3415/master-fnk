@@ -64,7 +64,7 @@ const precache = [
     "share-rogue-green.png", "vault-storm-locked.png", "vault-storm-open.png"].map((name) => `./v17/${name}`),
   ...["bg_video_jean.jpg", "bg_music_rogue.jpg", "bg_captured_storm.jpg", "bg_export_trio.jpg",
     "fig_jean_flying.png", "fig_jean_landed.png", "fig_rogue_flying.png", "fig_rogue_landed.png",
-    "fig_storm_flying.png", "fig_storm_landed.png"].map((name) => `./v17/${name}`),
+    "fig_storm_flying.png", "fig_storm_landed.png", "fig_trio_flying.png"].map((name) => `./v17/${name}`),
 ];
 const template = await readFile(path.join(root, "web", "sw.js"), "utf8");
 const sw = template
