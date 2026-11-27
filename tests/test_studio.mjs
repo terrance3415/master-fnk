@@ -195,6 +195,8 @@ test("a mode figure flies, then stays on the landed cutout", () => {
   assert.equal(flightSrc(theme, false, LAND_AT_MS - 1), "flying.png");
   assert.equal(flightSrc(theme, false, LAND_AT_MS), "landed.png");
   assert.equal(flightSrc(theme, true, 0), "landed.png");
+  assert.equal(flightSrc({ bg: "trio.jpg" }, false, 0), null);
+  assert.equal(flightSrc({ bg: "trio.jpg" }, true, 0), null);
   assert.ok(FLIGHT_MS >= 600 && FLIGHT_MS <= 900);
   assert.ok(LAND_AT_MS < FLIGHT_MS);
 });

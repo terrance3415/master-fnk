@@ -28,7 +28,7 @@ const STUDIO = {
   video: { label: "Video", color: "#C84F7A", bg: "./v17/bg_video_jean.jpg", fig: "./v17/fig_jean_landed.png", fly: "./v17/fig_jean_flying.png" },
   music: { label: "Music", color: "#5AC484", bg: "./v17/bg_music_rogue.jpg", fig: "./v17/fig_rogue_landed.png", fly: "./v17/fig_rogue_flying.png" },
   captured: { label: "Captured", color: "#4E58B9", bg: "./v17/bg_captured_storm.jpg", fig: "./v17/fig_storm_landed.png", fly: "./v17/fig_storm_flying.png" },
-  export: { label: "Export", color: "#F4EFE6", bg: "./v17/bg_export_trio.jpg", fig: "./v17/fig_trio_landed.png", fly: "./v17/fig_trio_flying.png" },
+  export: { label: "Export", color: "#F4EFE6", bg: "./v17/bg_export_trio.jpg" },
 };
 let flightToken = 0;
 
@@ -68,6 +68,8 @@ const state = {
   draft: null,
   blobs: new Map(),
   done: null,
+  homeTheme: "jean",
+  decoyHint: false,
   installEvent: null,
   timer: 0,
   abort: null,
@@ -85,8 +87,33 @@ function esc(value) {
 
 function paint() {
   const flight = state.flight;
+  const previousBg = state.transitionFrom && STUDIO[state.transitionFrom]?.bg;
   app.innerHTML = screens[state.screen] ? screens[state.screen]() : screens.working();
   state.flight = null;
+  const previousMode = state.transitionFrom;
+  state.transitionFrom = null;
+  if (previousBg && !reducedMotion()) {
+    const studio = app.querySelector(".studio");
+    const nextColor = studio && getComputedStyle(studio).getPropertyValue("--mode").trim();
+    if (studio && nextColor && previousMode !== state.draft?.studioMode) {
+      studio.style.setProperty("--mode", STUDIO[previousMode].color);
+      requestAnimationFrame(() => studio.style.setProperty("--mode", nextColor));
+    }
+    const stage = app.querySelector(".stage");
+    const background = stage?.querySelector(".stage-bg");
+    if (background && background.getAttribute("src") !== previousBg) {
+      const previous = document.createElement("img");
+      previous.className = "stage-bg stage-bg-previous";
+      previous.src = previousBg;
+      previous.alt = "";
+      stage.insertBefore(previous, background);
+      background.classList.add("crossfade");
+      background.addEventListener("animationend", () => {
+        previous.remove();
+        background.classList.remove("crossfade");
+      }, { once: true });
+    }
+  }
   if (flight && STUDIO[flight] && !reducedMotion()) scheduleLanding(flight);
   const wait = document.querySelector("[data-wait]");
   if (wait && state.record) startCountdown(state.record.passwordLockedUntil || state.record.recoveryLockedUntil || 0);
@@ -151,7 +178,9 @@ const screens = {
   unlock() {
     const until = state.record?.passwordLockedUntil || 0;
     const locked = until > Date.now();
-    return `<h1>Master FNK</h1>
+    return `<div class="vault-locked">
+      <header class="topbar"><h1>Master FNK</h1><h2>Vault</h2></header>
+      <div class="vault-lock-panel">
       <p class="lede">Enter the password for this phone.</p>
       ${installCard()}
       <form class="stack" data-action="unlock">
@@ -160,8 +189,11 @@ const screens = {
         ${state.error ? `<p class="error" role="alert">${esc(state.error)}</p>` : ""}
         <button class="btn primary" type="submit" ${locked ? "disabled" : ""}>Unlock</button>
       </form>
+      <button type="button" class="btn ghost" data-action="decoy">Open decoy vault</button>
+      ${state.decoyHint ? `<p class="note">Enter the second password you chose when creating the vault. If you did not set one, a decoy vault is not available.</p>` : ""}
       <button type="button" class="btn ghost" data-action="show-recover">Forgot the password</button>
-      <button type="button" class="btn danger" data-action="show-erase">Erase the lock and films on this phone</button>`;
+      <button type="button" class="btn danger" data-action="show-erase">Erase the lock and films on this phone</button>
+      </div></div>`;
   },
   recover() {
     const until = state.record?.recoveryLockedUntil || 0;
@@ -201,7 +233,12 @@ const screens = {
           </div>
         </article>`).join("")
       : `<p class="lede">No films yet.</p>`;
-    return `<header class="topbar"><h2>Your films</h2><button type="button" class="icon" data-action="lock">Lock</button></header>
+    return `<header class="topbar"><h2>Your films · Vault open</h2><button type="button" class="icon" data-action="lock">Lock</button></header>
+      <section class="home-art home-${state.homeTheme}" aria-label="Master FNK home artwork"></section>
+      <div class="home-themes" role="group" aria-label="Home artwork">
+        ${["jean", "rogue", "storm"].map((theme) => `<button type="button" class="chip ${state.homeTheme === theme ? "on" : ""}" data-action="home-theme" data-theme="${theme}" aria-pressed="${state.homeTheme === theme}">${theme[0].toUpperCase() + theme.slice(1)}</button>`).join("")}
+      </div>
+      <div class="vault-open-art" role="img" aria-label="Storm vault artwork"></div>
       ${installCard()}
       <label>Find by tag<input id="tag-query" type="text" value="${esc(state.tagQuery || "")}" placeholder="beach night"></label>
       <button type="button" class="btn" data-action="apply-tag-filter">Filter</button>
@@ -218,6 +255,7 @@ const screens = {
     const mode = STUDIO[draft.studioMode] ? draft.studioMode : "video";
     const theme = STUDIO[mode];
     const flying = state.flight === mode && !reducedMotion();
+    const figure = flightSrc(theme, !flying, 0);
     const plan = buildTimeline(draft.clips, draft);
     const videos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "video");
     const photos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "image");
@@ -279,7 +317,7 @@ const screens = {
           <button type="button" class="btn primary" data-action="create-film" ${plan.error || !draft.clips.length ? "disabled" : ""}>Create video</button>
         </section>`,
     }[mode];
-    return `<div class="studio mode-${mode}" style="--mode:${theme.color}">
+    return `<div class="studio mode-${mode}">
       <header class="studio-bar">
         <button type="button" class="icon" data-action="show-library">Back</button>
         <strong>master-fnk</strong>
@@ -288,12 +326,11 @@ const screens = {
       </header>
       <div class="stage">
         <img class="stage-bg" src="${theme.bg}" alt="">
-        <img class="stage-fig ${flying && mode === "export" ? "flying" : ""}" data-flight="${flying && mode === "export" ? "export" : ""}" src="${flightSrc(theme, !(flying && mode === "export"), 0)}" alt="">
+        ${figure ? `<img class="stage-fig ${flying ? "flying" : ""}" data-flight="${flying ? mode : ""}" src="${figure}" alt="">` : ""}
       </div>
       <nav class="mode-nav" aria-label="Editor mode">
         ${Object.entries(STUDIO).map(([id, item]) => {
-          const live = flying && id === mode;
-          return `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""} ${live ? "flying" : ""}" data-action="pick-studio" data-studio="${id}"><img data-flight="${live ? id : ""}" src="${flightSrc(item, !live, 0)}" alt=""><i></i><span>${item.label}</span></button>`;
+          return `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""} ${mode === id && flying ? "flying" : ""}" data-action="pick-studio" data-studio="${id}"><i></i><span>${item.label}</span>${mode === id && figure ? `<img data-flight="${flying ? mode : ""}" src="${figure}" alt="">` : ""}</button>`;
         }).join("")}
       </nav>
       <input id="media-input" class="hidden" type="file" accept="video/*,image/*" multiple>
@@ -303,7 +340,6 @@ const screens = {
     </div>`;
   },
   render() {
-    const flying = state.flight === "export" && !reducedMotion();
     return `<div class="studio mode-export">
       <header class="studio-bar">
         <button type="button" class="icon" data-action="cancel-render">Stop</button>
@@ -312,10 +348,14 @@ const screens = {
       </header>
       <div class="stage">
         <img class="stage-bg" src="${STUDIO.export.bg}" alt="">
-        <img class="stage-fig ${flying ? "flying" : ""}" data-flight="${flying ? "export" : ""}" src="${flightSrc(STUDIO.export, !flying, 0)}" alt="">
         <div class="export-float">
           <p data-progress-label>${esc(state.working || "Starting…")}</p>
           <div class="progress" aria-hidden="true"><span data-progress-bar></span></div>
+        </div>
+        <div class="export-rows">
+          <div class="export-row video">Video</div>
+          <div class="export-row music">Music</div>
+          <div class="export-row captured">Captured</div>
         </div>
       </div>
       <p class="note">Keep this screen open. A longer film, 1080p, or Enhance takes longer. 4K is the slowest.</p>
@@ -332,7 +372,7 @@ const screens = {
       <p><b>${esc(done.width)}×${esc(done.height)}</b> · ${Number(done.duration || 0).toFixed(1)}s · H.264</p>
       ${(done.notes || []).map((note) => `<p class="note">${esc(note)}</p>`).join("")}
       <div class="stack">
-        <button type="button" class="btn share" data-action="share-locked">Share a locked copy</button>
+        <button type="button" class="btn share" data-action="show-share">Share a locked copy</button>
         <p class="note">Asks for a share password. The file is a .nenc. It is not the vault password. The other person opens it in the Android app or with the Python tool.</p>
         <button type="button" class="btn ghost" data-action="download">Download an unprotected copy</button>
         <p class="note">Unprotected. Anyone with this file can watch it.</p>
@@ -340,6 +380,20 @@ const screens = {
         <button type="button" class="btn ghost" data-action="new-film">Make another</button>
       </div>
       <p class="footer">Saved in the vault on this phone. Download keeps a copy in your gallery or files.</p>`;
+  },
+  share() {
+    return `<div class="share-screen">
+      <header class="topbar"><button type="button" class="icon" data-action="show-done">Back</button><h2>Share</h2></header>
+      <section class="share-panel stack">
+        <h2>Share a locked copy</h2>
+        <p>Encrypt before sharing · On</p>
+        <p class="note">Choose Messages, Email, Files, or another destination in your device’s share sheet. A separate share password protects the .nenc file.</p>
+        ${state.error ? `<p class="error" role="alert">${esc(state.error)}</p>` : ""}
+        <button type="button" class="btn share" data-action="share-locked">Encrypt and share</button>
+        <button type="button" class="btn ghost" data-action="download">Download an unprotected copy</button>
+        <p class="note">Unprotected downloads can be watched by anyone with the file.</p>
+      </section>
+    </div>`;
   },
 };
 
@@ -609,6 +663,7 @@ const actions = {
   },
   "show-unlock"() {
     state.error = "";
+    state.decoyHint = false;
     state.screen = "unlock";
     paint();
   },
@@ -622,11 +677,33 @@ const actions = {
     state.error = "";
     paint();
   },
+  decoy() {
+    state.decoyHint = true;
+    paint();
+    document.getElementById("password")?.focus();
+  },
+  "home-theme"(button) {
+    if (!["jean", "rogue", "storm"].includes(button.dataset.theme)) return;
+    state.homeTheme = button.dataset.theme;
+    paint();
+  },
+  "show-share"() {
+    state.error = "";
+    state.screen = "share";
+    paint();
+  },
+  "show-done"() {
+    state.error = "";
+    state.screen = "done";
+    paint();
+  },
   lock() {
     if (state.vaultKey) state.vaultKey.fill(0);
     state.vaultKey = null;
     state.slotId = null;
     state.blobs.clear();
+    state.library = [];
+    state.people = [];
     state.draft = null;
     state.done = null;
     state.error = "";
@@ -679,8 +756,9 @@ const actions = {
     if (!state.draft) return;
     const next = button.dataset.studio;
     if (!STUDIO[next]) return;
+    state.transitionFrom = state.draft.studioMode || "video";
     state.draft.studioMode = next;
-    state.flight = reducedMotion() ? null : next;
+    state.flight = next !== "export" && !reducedMotion() ? next : null;
     paint();
     saveDraft();
   },
@@ -770,7 +848,6 @@ const actions = {
     state.screen = "render";
     state.working = "Starting…";
     state.error = "";
-    state.flight = reducedMotion() ? null : "export";
     paint();
     const project = {
       ...state.draft,
@@ -1114,6 +1191,7 @@ app.addEventListener("submit", async (event) => {
     await kvSet("vault", state.pending.record);
     state.record = state.pending.record;
     state.vaultKey = state.pending.vaultKey;
+    state.slotId = state.pending.slotId || null;
     state.pending = null;
     state.library = [];
     await persist();
@@ -1354,9 +1432,27 @@ function inspectFile(file, kind) {
 }
 
 async function loadLibrary() {
-  const saved = await kvGet(libraryKey());
+  let saved = await kvGet(libraryKey());
+  if (!saved && state.slotId) {
+    const legacy = await kvGet("library");
+    if (legacy) {
+      let matches = false;
+      try {
+        await decryptBytes(state.vaultKey, legacy);
+        matches = true;
+      } catch {
+        // A legacy library belonging to another slot must remain untouched.
+      }
+      if (matches) {
+        await kvSet(libraryKey(), legacy);
+        await kvDel("library");
+        saved = legacy;
+      }
+    }
+  }
   if (!saved) {
     state.library = [];
+    state.people = [];
     return;
   }
   const bytes = await decryptBytes(state.vaultKey, saved);
@@ -1510,6 +1606,7 @@ async function decodeMusicPeaks(file) {
 }
 
 async function boot() {
+  const opening = reducedMotion() ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, 800));
   try {
     state.record = await kvGet("vault");
     state.screen = state.record ? "unlock" : "setup";
@@ -1517,6 +1614,7 @@ async function boot() {
     state.screen = "blocked";
     state.error = "This browser is blocking saved data. Leave private mode and open the app again.";
   }
+  await opening;
   paint();
 }
 

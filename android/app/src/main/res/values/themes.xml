@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.MasterFnk" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">#E2B15A</item>
-        <item name="android:statusBarColor">#100E0C</item>
-        <item name="android:navigationBarColor">#100E0C</item>
-        <item name="android:windowBackground">#100E0C</item>
+        <item name="colorPrimary">#C84F7A</item>
+        <item name="android:statusBarColor">#130D19</item>
+        <item name="android:navigationBarColor">#130D19</item>
+        <item name="android:windowBackground">#130D19</item>
     </style>
 </resources>
