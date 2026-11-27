@@ -28,7 +28,7 @@ const STUDIO = {
   video: { label: "Video", color: "#C84F7A", bg: "./v17/bg_video_jean.jpg", fig: "./v17/fig_jean_landed.png", fly: "./v17/fig_jean_flying.png" },
   music: { label: "Music", color: "#5AC484", bg: "./v17/bg_music_rogue.jpg", fig: "./v17/fig_rogue_landed.png", fly: "./v17/fig_rogue_flying.png" },
   captured: { label: "Captured", color: "#4E58B9", bg: "./v17/bg_captured_storm.jpg", fig: "./v17/fig_storm_landed.png", fly: "./v17/fig_storm_flying.png" },
-  export: { label: "Export", color: "#F4EFE6", bg: "./v17/bg_export_trio.jpg", fig: "./v17/fig_trio_landed.png", fly: "./v17/fig_trio_flying.png" },
+  export: { label: "Export", color: "#F4EFE6", bg: "./v17/bg_export_trio.jpg" },
 };
 let flightToken = 0;
 
@@ -85,8 +85,33 @@ function esc(value) {
 
 function paint() {
   const flight = state.flight;
+  const previousBg = state.transitionFrom && STUDIO[state.transitionFrom]?.bg;
   app.innerHTML = screens[state.screen] ? screens[state.screen]() : screens.working();
   state.flight = null;
+  const previousMode = state.transitionFrom;
+  state.transitionFrom = null;
+  if (previousBg && !reducedMotion()) {
+    const studio = app.querySelector(".studio");
+    const nextColor = studio && getComputedStyle(studio).getPropertyValue("--mode").trim();
+    if (studio && nextColor && previousMode !== state.draft?.studioMode) {
+      studio.style.setProperty("--mode", STUDIO[previousMode].color);
+      requestAnimationFrame(() => studio.style.setProperty("--mode", nextColor));
+    }
+    const stage = app.querySelector(".stage");
+    const background = stage?.querySelector(".stage-bg");
+    if (background && background.getAttribute("src") !== previousBg) {
+      const previous = document.createElement("img");
+      previous.className = "stage-bg stage-bg-previous";
+      previous.src = previousBg;
+      previous.alt = "";
+      stage.insertBefore(previous, background);
+      background.classList.add("crossfade");
+      background.addEventListener("animationend", () => {
+        previous.remove();
+        background.classList.remove("crossfade");
+      }, { once: true });
+    }
+  }
   if (flight && STUDIO[flight] && !reducedMotion()) scheduleLanding(flight);
   const wait = document.querySelector("[data-wait]");
   if (wait && state.record) startCountdown(state.record.passwordLockedUntil || state.record.recoveryLockedUntil || 0);
@@ -218,6 +243,7 @@ const screens = {
     const mode = STUDIO[draft.studioMode] ? draft.studioMode : "video";
     const theme = STUDIO[mode];
     const flying = state.flight === mode && !reducedMotion();
+    const figure = flightSrc(theme, !flying, 0);
     const plan = buildTimeline(draft.clips, draft);
     const videos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "video");
     const photos = draft.clips.map((clip, index) => ({ clip, index })).filter((item) => item.clip.kind === "image");
@@ -279,7 +305,7 @@ const screens = {
           <button type="button" class="btn primary" data-action="create-film" ${plan.error || !draft.clips.length ? "disabled" : ""}>Create video</button>
         </section>`,
     }[mode];
-    return `<div class="studio mode-${mode}" style="--mode:${theme.color}">
+    return `<div class="studio mode-${mode}">
       <header class="studio-bar">
         <button type="button" class="icon" data-action="show-library">Back</button>
         <strong>master-fnk</strong>
@@ -288,12 +314,11 @@ const screens = {
       </header>
       <div class="stage">
         <img class="stage-bg" src="${theme.bg}" alt="">
-        <img class="stage-fig ${flying && mode === "export" ? "flying" : ""}" data-flight="${flying && mode === "export" ? "export" : ""}" src="${flightSrc(theme, !(flying && mode === "export"), 0)}" alt="">
+        ${figure ? `<img class="stage-fig ${flying ? "flying" : ""}" data-flight="${flying ? mode : ""}" src="${figure}" alt="">` : ""}
       </div>
       <nav class="mode-nav" aria-label="Editor mode">
         ${Object.entries(STUDIO).map(([id, item]) => {
-          const live = flying && id === mode;
-          return `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""} ${live ? "flying" : ""}" data-action="pick-studio" data-studio="${id}"><img data-flight="${live ? id : ""}" src="${flightSrc(item, !live, 0)}" alt=""><i></i><span>${item.label}</span></button>`;
+          return `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""}" data-action="pick-studio" data-studio="${id}"><i></i><span>${item.label}</span></button>`;
         }).join("")}
       </nav>
       <input id="media-input" class="hidden" type="file" accept="video/*,image/*" multiple>
@@ -303,7 +328,6 @@ const screens = {
     </div>`;
   },
   render() {
-    const flying = state.flight === "export" && !reducedMotion();
     return `<div class="studio mode-export">
       <header class="studio-bar">
         <button type="button" class="icon" data-action="cancel-render">Stop</button>
@@ -312,10 +336,14 @@ const screens = {
       </header>
       <div class="stage">
         <img class="stage-bg" src="${STUDIO.export.bg}" alt="">
-        <img class="stage-fig ${flying ? "flying" : ""}" data-flight="${flying ? "export" : ""}" src="${flightSrc(STUDIO.export, !flying, 0)}" alt="">
         <div class="export-float">
           <p data-progress-label>${esc(state.working || "Starting…")}</p>
           <div class="progress" aria-hidden="true"><span data-progress-bar></span></div>
+        </div>
+        <div class="export-rows">
+          <div class="export-row video">Video</div>
+          <div class="export-row music">Music</div>
+          <div class="export-row captured">Captured</div>
         </div>
       </div>
       <p class="note">Keep this screen open. A longer film, 1080p, or Enhance takes longer. 4K is the slowest.</p>
@@ -679,8 +707,9 @@ const actions = {
     if (!state.draft) return;
     const next = button.dataset.studio;
     if (!STUDIO[next]) return;
+    state.transitionFrom = state.draft.studioMode || "video";
     state.draft.studioMode = next;
-    state.flight = reducedMotion() ? null : next;
+    state.flight = next !== "export" && !reducedMotion() ? next : null;
     paint();
     saveDraft();
   },
@@ -770,7 +799,6 @@ const actions = {
     state.screen = "render";
     state.working = "Starting…";
     state.error = "";
-    state.flight = reducedMotion() ? null : "export";
     paint();
     const project = {
       ...state.draft,
