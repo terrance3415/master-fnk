@@ -68,6 +68,8 @@ const state = {
   draft: null,
   blobs: new Map(),
   done: null,
+  homeTheme: "jean",
+  decoyHint: false,
   installEvent: null,
   timer: 0,
   abort: null,
@@ -176,7 +178,9 @@ const screens = {
   unlock() {
     const until = state.record?.passwordLockedUntil || 0;
     const locked = until > Date.now();
-    return `<h1>Master FNK</h1>
+    return `<div class="vault-locked">
+      <header class="topbar"><h1>Master FNK</h1><h2>Vault</h2></header>
+      <div class="vault-lock-panel">
       <p class="lede">Enter the password for this phone.</p>
       ${installCard()}
       <form class="stack" data-action="unlock">
@@ -185,8 +189,11 @@ const screens = {
         ${state.error ? `<p class="error" role="alert">${esc(state.error)}</p>` : ""}
         <button class="btn primary" type="submit" ${locked ? "disabled" : ""}>Unlock</button>
       </form>
+      <button type="button" class="btn ghost" data-action="decoy">Open decoy vault</button>
+      ${state.decoyHint ? `<p class="note">Enter the second password you chose when creating the vault. If you did not set one, a decoy vault is not available.</p>` : ""}
       <button type="button" class="btn ghost" data-action="show-recover">Forgot the password</button>
-      <button type="button" class="btn danger" data-action="show-erase">Erase the lock and films on this phone</button>`;
+      <button type="button" class="btn danger" data-action="show-erase">Erase the lock and films on this phone</button>
+      </div></div>`;
   },
   recover() {
     const until = state.record?.recoveryLockedUntil || 0;
@@ -226,7 +233,12 @@ const screens = {
           </div>
         </article>`).join("")
       : `<p class="lede">No films yet.</p>`;
-    return `<header class="topbar"><h2>Your films</h2><button type="button" class="icon" data-action="lock">Lock</button></header>
+    return `<header class="topbar"><h2>Your films · Vault open</h2><button type="button" class="icon" data-action="lock">Lock</button></header>
+      <section class="home-art home-${state.homeTheme}" aria-label="Master FNK home artwork"></section>
+      <div class="home-themes" role="group" aria-label="Home artwork">
+        ${["jean", "rogue", "storm"].map((theme) => `<button type="button" class="chip ${state.homeTheme === theme ? "on" : ""}" data-action="home-theme" data-theme="${theme}" aria-pressed="${state.homeTheme === theme}">${theme[0].toUpperCase() + theme.slice(1)}</button>`).join("")}
+      </div>
+      <div class="vault-open-art" role="img" aria-label="Storm vault artwork"></div>
       ${installCard()}
       <label>Find by tag<input id="tag-query" type="text" value="${esc(state.tagQuery || "")}" placeholder="beach night"></label>
       <button type="button" class="btn" data-action="apply-tag-filter">Filter</button>
@@ -318,7 +330,7 @@ const screens = {
       </div>
       <nav class="mode-nav" aria-label="Editor mode">
         ${Object.entries(STUDIO).map(([id, item]) => {
-          return `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""}" data-action="pick-studio" data-studio="${id}"><i></i><span>${item.label}</span></button>`;
+          return `<button type="button" class="mode-btn ${id} ${mode === id ? "on" : ""} ${mode === id && flying ? "flying" : ""}" data-action="pick-studio" data-studio="${id}"><i></i><span>${item.label}</span>${mode === id && figure ? `<img data-flight="${flying ? mode : ""}" src="${figure}" alt="">` : ""}</button>`;
         }).join("")}
       </nav>
       <input id="media-input" class="hidden" type="file" accept="video/*,image/*" multiple>
@@ -360,7 +372,7 @@ const screens = {
       <p><b>${esc(done.width)}×${esc(done.height)}</b> · ${Number(done.duration || 0).toFixed(1)}s · H.264</p>
       ${(done.notes || []).map((note) => `<p class="note">${esc(note)}</p>`).join("")}
       <div class="stack">
-        <button type="button" class="btn share" data-action="share-locked">Share a locked copy</button>
+        <button type="button" class="btn share" data-action="show-share">Share a locked copy</button>
         <p class="note">Asks for a share password. The file is a .nenc. It is not the vault password. The other person opens it in the Android app or with the Python tool.</p>
         <button type="button" class="btn ghost" data-action="download">Download an unprotected copy</button>
         <p class="note">Unprotected. Anyone with this file can watch it.</p>
@@ -368,6 +380,20 @@ const screens = {
         <button type="button" class="btn ghost" data-action="new-film">Make another</button>
       </div>
       <p class="footer">Saved in the vault on this phone. Download keeps a copy in your gallery or files.</p>`;
+  },
+  share() {
+    return `<div class="share-screen">
+      <header class="topbar"><button type="button" class="icon" data-action="show-done">Back</button><h2>Share</h2></header>
+      <section class="share-panel stack">
+        <h2>Share a locked copy</h2>
+        <p>Encrypt before sharing · On</p>
+        <p class="note">Choose Messages, Email, Files, or another destination in your device’s share sheet. A separate share password protects the .nenc file.</p>
+        ${state.error ? `<p class="error" role="alert">${esc(state.error)}</p>` : ""}
+        <button type="button" class="btn share" data-action="share-locked">Encrypt and share</button>
+        <button type="button" class="btn ghost" data-action="download">Download an unprotected copy</button>
+        <p class="note">Unprotected downloads can be watched by anyone with the file.</p>
+      </section>
+    </div>`;
   },
 };
 
@@ -637,6 +663,7 @@ const actions = {
   },
   "show-unlock"() {
     state.error = "";
+    state.decoyHint = false;
     state.screen = "unlock";
     paint();
   },
@@ -650,11 +677,33 @@ const actions = {
     state.error = "";
     paint();
   },
+  decoy() {
+    state.decoyHint = true;
+    paint();
+    document.getElementById("password")?.focus();
+  },
+  "home-theme"(button) {
+    if (!["jean", "rogue", "storm"].includes(button.dataset.theme)) return;
+    state.homeTheme = button.dataset.theme;
+    paint();
+  },
+  "show-share"() {
+    state.error = "";
+    state.screen = "share";
+    paint();
+  },
+  "show-done"() {
+    state.error = "";
+    state.screen = "done";
+    paint();
+  },
   lock() {
     if (state.vaultKey) state.vaultKey.fill(0);
     state.vaultKey = null;
     state.slotId = null;
     state.blobs.clear();
+    state.library = [];
+    state.people = [];
     state.draft = null;
     state.done = null;
     state.error = "";
@@ -1142,6 +1191,7 @@ app.addEventListener("submit", async (event) => {
     await kvSet("vault", state.pending.record);
     state.record = state.pending.record;
     state.vaultKey = state.pending.vaultKey;
+    state.slotId = state.pending.slotId || null;
     state.pending = null;
     state.library = [];
     await persist();
@@ -1382,9 +1432,27 @@ function inspectFile(file, kind) {
 }
 
 async function loadLibrary() {
-  const saved = await kvGet(libraryKey());
+  let saved = await kvGet(libraryKey());
+  if (!saved && state.slotId) {
+    const legacy = await kvGet("library");
+    if (legacy) {
+      let matches = false;
+      try {
+        await decryptBytes(state.vaultKey, legacy);
+        matches = true;
+      } catch {
+        // A legacy library belonging to another slot must remain untouched.
+      }
+      if (matches) {
+        await kvSet(libraryKey(), legacy);
+        await kvDel("library");
+        saved = legacy;
+      }
+    }
+  }
   if (!saved) {
     state.library = [];
+    state.people = [];
     return;
   }
   const bytes = await decryptBytes(state.vaultKey, saved);
@@ -1538,6 +1606,7 @@ async function decodeMusicPeaks(file) {
 }
 
 async function boot() {
+  const opening = reducedMotion() ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, 800));
   try {
     state.record = await kvGet("vault");
     state.screen = state.record ? "unlock" : "setup";
@@ -1545,6 +1614,7 @@ async function boot() {
     state.screen = "blocked";
     state.error = "This browser is blocking saved data. Leave private mode and open the app again.";
   }
+  await opening;
   paint();
 }
 
