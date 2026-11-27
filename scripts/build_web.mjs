@@ -57,6 +57,12 @@ const precache = [
   "./icons/icon-512.png",
   "./icons/icon-maskable.png",
   "./icons/apple-touch-icon.png",
+  "./icons/v17-lightning.png",
+  "./icons/v17-lightning-180.png",
+  "./v17/splash-screen.png",
+  ...["bg_video_jean.jpg", "bg_music_rogue.jpg", "bg_captured_storm.jpg", "bg_export_trio.jpg",
+    "fig_jean_flying.png", "fig_jean_landed.png", "fig_rogue_flying.png", "fig_rogue_landed.png",
+    "fig_storm_flying.png", "fig_storm_landed.png"].map((name) => `./v17/${name}`),
 ];
 const template = await readFile(path.join(root, "web", "sw.js"), "utf8");
 const sw = template
