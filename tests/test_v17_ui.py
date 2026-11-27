@@ -54,6 +54,15 @@ def test_v17_vault_and_home():
                 page.locator("#password").fill("primary-password")
                 page.get_by_role("button", name="Unlock", exact=True).click()
                 page.get_by_role("button", name="Make a film").wait_for()
+                page.get_by_role("button", name="Make a film").click()
+                for mode in ("video", "music", "captured"):
+                    page.locator(f'[data-studio="{mode}"]').click()
+                    assert page.locator(f'.mode-btn.{mode} img').count() == 1
+                page.locator('.mode-btn.export').click()
+                assert page.locator(".stage-bg").get_attribute("src").endswith("bg_export_trio.jpg")
+                assert page.locator(".stage-fig, .mode-btn img").count() == 0
+                for category in ("video", "music", "captured"):
+                    assert page.locator(f".export-row.{category}").count() == 1
             finally:
                 browser.close()
     finally:
