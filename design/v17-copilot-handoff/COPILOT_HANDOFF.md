@@ -37,7 +37,7 @@ Production backgrounds and transparent figures in `assets/` are identical to the
 
 ## How to materialize the PNG/JPG files
 
-The production-ready images are stored losslessly as base64 payloads in `payloads/` (`icons.manifest`, `assets.manifest`, `mockups.manifest`, `giles_screens.manifest`). After cloning this branch, run:
+The production-ready images are stored losslessly as base64 payloads in `payloads/` (one `*.manifest` file per asset group: icons, backgrounds/figures, mockups, and Giles screens). After cloning this branch, run:
 
 ```bash
 python3 design/v17-copilot-handoff/decode_assets.py
