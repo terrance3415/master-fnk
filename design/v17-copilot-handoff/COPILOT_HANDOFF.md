@@ -34,3 +34,14 @@ Production backgrounds and transparent figures in `assets/` are identical to the
 - When switching tabs (**Video → Jean**, **Music → Rogue**, **Captured → Storm**), crossfade the full-screen background and theme accent color, and animate the matching mini character flying in (`fig_*_flying.png`) and landing (`fig_*_landed.png`) above the tab bar / action area as shown in `mockups/theme_v17_flying_sheet.jpg` and `mockups/theme_v17_landed_sheet.jpg`.
 - On the **Export** screen, show `bg_export_trio.jpg` above the exporting progress bar with **no mini figures**, and keep each category row tinted in its own accent color.
 - All encryption/decryption (`.nenc` AES-256-GCM) stays 100% local on-device.
+
+## How to materialize the PNG/JPG files
+
+The production-ready images are stored losslessly as base64 payloads in `payloads/` (`icons.manifest`, `assets.manifest`, `mockups.manifest`, `giles_screens.manifest`). After cloning this branch, run:
+
+```bash
+python3 design/v17-copilot-handoff/decode_assets.py
+```
+
+That writes the original PNG/JPG files into `assets/`, `mockups/`, `giles_screens/`, and `icons/`. Use those decoded files in the app; do not copy the `.manifest` sources into Android/web resource folders.
+
