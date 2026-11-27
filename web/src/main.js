@@ -702,6 +702,8 @@ const actions = {
     state.vaultKey = null;
     state.slotId = null;
     state.blobs.clear();
+    state.library = [];
+    state.people = [];
     state.draft = null;
     state.done = null;
     state.error = "";
@@ -1189,6 +1191,7 @@ app.addEventListener("submit", async (event) => {
     await kvSet("vault", state.pending.record);
     state.record = state.pending.record;
     state.vaultKey = state.pending.vaultKey;
+    state.slotId = state.pending.slotId || null;
     state.pending = null;
     state.library = [];
     await persist();
@@ -1429,9 +1432,27 @@ function inspectFile(file, kind) {
 }
 
 async function loadLibrary() {
-  const saved = await kvGet(libraryKey());
+  let saved = await kvGet(libraryKey());
+  if (!saved && state.slotId) {
+    const legacy = await kvGet("library");
+    if (legacy) {
+      let matches = false;
+      try {
+        await decryptBytes(state.vaultKey, legacy);
+        matches = true;
+      } catch {
+        // A legacy library belonging to another slot must remain untouched.
+      }
+      if (matches) {
+        await kvSet(libraryKey(), legacy);
+        await kvDel("library");
+        saved = legacy;
+      }
+    }
+  }
   if (!saved) {
     state.library = [];
+    state.people = [];
     return;
   }
   const bytes = await decryptBytes(state.vaultKey, saved);

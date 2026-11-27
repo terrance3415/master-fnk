@@ -43,6 +43,48 @@ def test_v17_vault_and_home():
                     button.click()
                     assert button.get_attribute("aria-pressed") == "true"
                     assert page.locator(f".home-{theme.lower()}").count() == 1
+                library_iv = """() => new Promise((resolve, reject) => {
+                    const open = indexedDB.open("master-fnk");
+                    open.onerror = () => reject(open.error);
+                    open.onsuccess = () => {
+                        const db = open.result;
+                        const store = db.transaction("kv").objectStore("kv");
+                        const keys = store.getAllKeys();
+                        keys.onsuccess = () => {
+                            const key = keys.result.find(k => k === "library" || k.startsWith("lib:"));
+                            const request = store.get(key);
+                            request.onsuccess = () => { resolve(JSON.stringify(request.result.iv)); db.close(); };
+                        };
+                    };
+                })"""
+                initial_iv = page.evaluate(library_iv)
+                page.get_by_role("button", name="Make a film").click()
+                page.locator('.mode-btn.export').click()
+                page.wait_for_function(f"async previous => (await ({library_iv})()) !== previous", arg=initial_iv)
+                initial_iv = page.evaluate(library_iv)
+                page.locator("#film-name").fill("Primary draft")
+                page.locator('.mode-btn.music').click()
+                page.wait_for_function(f"async previous => (await ({library_iv})()) !== previous", arg=initial_iv)
+                page.get_by_role("button", name="Back", exact=True).click()
+                assert page.get_by_text("Primary draft").is_visible()
+                page.evaluate("""() => new Promise((resolve, reject) => {
+                    const open = indexedDB.open("master-fnk");
+                    open.onerror = () => reject(open.error);
+                    open.onsuccess = () => {
+                        const db = open.result;
+                        const tx = db.transaction("kv", "readwrite");
+                        const store = tx.objectStore("kv");
+                        const keys = store.getAllKeys();
+                        keys.onsuccess = () => {
+                            const key = keys.result.find(k => k.startsWith("lib:"));
+                            if (!key) { tx.abort(); return; }
+                            const request = store.get(key);
+                            request.onsuccess = () => { store.put(request.result, "library"); store.delete(key); };
+                        };
+                        tx.oncomplete = () => { db.close(); resolve(); };
+                        tx.onabort = () => { db.close(); reject(new Error("Missing primary slot")); };
+                    };
+                })""")
                 page.get_by_role("button", name="Lock", exact=True).click()
                 page.get_by_role("button", name="Open decoy vault").click()
                 assert page.get_by_text("Enter the second password", exact=False).is_visible()
@@ -54,6 +96,7 @@ def test_v17_vault_and_home():
                 page.locator("#password").fill("primary-password")
                 page.get_by_role("button", name="Unlock", exact=True).click()
                 page.get_by_role("button", name="Make a film").wait_for()
+                assert page.get_by_text("Primary draft").is_visible()
                 page.get_by_role("button", name="Make a film").click()
                 for mode in ("video", "music", "captured"):
                     page.locator(f'[data-studio="{mode}"]').click()
